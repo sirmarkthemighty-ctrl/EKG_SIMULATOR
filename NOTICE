@@ -1,0 +1,20 @@
+EKG & Conduction Simulator
+Copyright (c) 2026 Warodom Phaenthong, M.D.
+
+This work (the app, its source code, drawings, text and data tables) is licensed under the
+Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License (CC BY-NC-SA 4.0).
+The full licence text is in the LICENSE file and at
+https://creativecommons.org/licenses/by-nc-sa/4.0/
+
+In short: you may share and adapt this work for non-commercial purposes, provided you credit the
+author, link to the licence, say what you changed, and release your version under the same licence.
+
+No warranty. The app is a teaching aid for healthcare professionals. It is not a diagnostic device and does not replace
+clinical judgement.
+
+The app contains no third-party code and no PTB-XL data; it was validated against PTB-XL
+(Wagner et al. 2020) and PTB-XL+ (Strodthoff et al. 2023), both CC BY 4.0.
+Fonts (IBM Plex Sans, IBM Plex Sans Condensed, IBM Plex Mono)
+are loaded from Google Fonts under the SIL Open Font License.
+
+Product names and trademarks belong to their owners and are used only to identify the products.
