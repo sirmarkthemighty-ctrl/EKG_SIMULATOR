@@ -1222,6 +1222,8 @@ function membrane(MOD){
    notch, across the plateau, down phase three, back to wherever this
    layer now rests. Nothing here is an ECG waveform. The waveform is what
    two of these differ by. */
+/* how far the plateau falls before phase three, as a share of its height: real plateaus are not flat */
+var PSAG = 0.4;      /* chosen on the PTB-XL fitting half: 97.15% flat, 97.45% at 0.4 (ties 0.5) */
 var PH3 = 0.579;         /* of the action potential gone before phase three starts */
 function vmPh3(P){
   var dome = P.dome || 0;
@@ -1242,11 +1244,11 @@ function vmLayer(P, t){
   if (u < t2){                                  /* phase two: the dome
        climbs back over the notch, or, where it has been lost, collapses */
     var ru = (u-t1)/((pk >= nv) ? (P.nrise || NOTCHRISE) : 0.018);
-    return nv + (pk-nv)*(ru < 1 ? ru : 1);
+    return nv + (pk-nv)*(ru < 1 ? ru : 1) - PSAG*pk*(u-t1)/(a-t1);   /* the plateau sags as the outward currents grow */
   }
   if (u < a){                                   /* phase three */
-    var x3 = (u-t2)/(a-t2);
-    return pk + (r-pk)*(0.5 - 0.5*Math.cos(Math.PI*x3));
+    var x3 = (u-t2)/(a-t2), p2 = pk*(1 - PSAG*(t2-t1)/(a-t1));
+    return p2 + (r-p2)*(0.5 - 0.5*Math.cos(Math.PI*x3));
   }
   return r;
 }
@@ -2113,15 +2115,15 @@ function rotv(v,deg){
    (.claude/ptbxl-score.js --seg --half test); a rhythm it cannot yet draw faithfully sets segOff and keeps the region model */
 var SEGON = true;
 /* fitted to the normal 12-lead QRS of PTB-XL (.claude/ptbxl-score.js --seg) */
-var SEGV = { atr:0.120, bach:0.200, myo:0.0724, cross:0.0209, trans:0.0561, purk:0.2441, pmj:7.8829, ret:5.9823, xdiv:0.08 };   /* along fibres, across them, across the wall */  /* cm/ms; ms */
+var SEGV = { atr:0.120, bach:0.200, myo:0.0753, cross:0.0209, trans:0.0533, purk:0.2382, pmj:7.8829, ret:5.9823, xdiv:0.08 };   /* along fibres, across them, across the wall */  /* cm/ms; ms */
 var SEGK = 0.0611;            /* dipole per unit voltage difference per cm^2 of boundary */
 /* A rhythm states its membrane changes once, for both engines. The
    region model reads a wall as a whole and needs them large; the mesh
    reads every boundary, so it takes them at this fraction of their size -
    one for all, unless a rhythm was fitted to its own PTB-XL group (segdz). */
 var SEGDZ = { apd:1.0, rp:1.0, st:1.0 };
-var SEGDEADRET = 2.7568;        /* how much harder muscle finds it to enter a network whose bundle is cut */
-var SEGARR = { lbb:0, laf:3.3278, lpf:1.3887, rbb:14.6062 };   /* ms from QRS onset to each branch's exit */
+var SEGDEADRET = 3.8762;        /* how much harder muscle finds it to enter a network whose bundle is cut */
+var SEGARR = { lbb:-0.2544, laf:3.3278, lpf:1.3887, rbb:19.2443 };   /* ms from QRS onset to each branch's exit */
 var SEGAPDSLOPE = 0.1349;      /* each ms later activated, this many ms shorter */
 var SEGAPDK = 0.9728;          /* the first patch's action potential, against the region model's */
 /* each layer's action potential, as a fraction of the first one reached:
@@ -2137,7 +2139,7 @@ var SEGBEATS = [];
    the plane seen edge-on in the left anterior oblique view at lao degrees,
    facing the right ventricle forward and to the right; roll can turn it
    about the long axis but anatomy says it need not. */
-var MESHP = { atrK:1.4, pap:0, lung:0, rLat:0.3983, hLat:0.2948, ot:0.0987, rc:1.0047, ox:-0.9866, oy:0.6126, oz:0.7795, nl:4, nlr:2, helix:57.6764, af:39.9868, tilt:43.1679, roll:8.5207, lao:47.2146, L:6.5962, R:2.6508, H:0.905, HS:0.9149, HRV:0.255, BRV:0.9493, lvPurk:0.087, rvPurk:0.2057, rvsPurk:0.9367, tan:0.95 };
+var MESHP = { atrK:1.4, pap:0, lung:0, rLat:0.3983, hLat:0.2948, ot:0.0987, rc:1.0047, ox:-0.9866, oy:0.6126, oz:0.7795, nl:4, nlr:2, helix:57.6764, af:39.9868, tilt:43.1679, roll:8.5207, lao:47.2146, L:6.5962, R:2.6508, H:0.905, HS:0.9149, HRV:0.255, BRV:0.9493, lvPurk:0.087, rvPurk:0.1103, rvsPurk:0.1151, tan:0.95 };
 var MESH = null;
 function buildMesh(){ MESH = (function(){
   var Q = MESHP, ca = Math.cos(Q.af*D2R), sa = Math.sin(Q.af*D2R), ct = Math.cos(Q.tilt*D2R), st = Math.sin(Q.tilt*D2R);
@@ -2749,7 +2751,7 @@ function rvsEntry(){
   for (var i = 0; i < M.NC; i++){ var c = M.cells[i]; if (c.side !== 'rvs') continue; var d = Math.abs(c.s - SEGLBBB.s); if (d < bd){ bd = d; best = i; } }
   return best;
 }
-var SEGLPFLATE = -3;  /* ms added to the posterior fascicle when the anterior is cut: it runs a touch early (PTB-XL LAFB 87/91; later times scored worse) */
+var SEGLPFLATE = 0;   /* ms added to the posterior fascicle when the anterior is cut (0, -3 and -6 tie on the fitting half, so none) */
 var SEGXDEAD = 0.7;   /* PTB-XL LAFB 86/91 held-out, QRS 115 ms (82/91 at 1). How well a cut fascicle's Purkinje net is refilled from the other one */
 function segSolve(sources, opt){
   var M = MESH, N = M.adj.length, T = new Float64Array(N), i;
@@ -5965,11 +5967,14 @@ function openRhythmInfo(id){
    CHANGELOG
    Newest first. Kept in the file so the tool carries its own history.
 ===================================================================== */
-var APPVER = '2.0.13';
+var APPVER = '2.0.15';
 var CHANGELOG = [
- { v:'2.0.13', d:'21 Oct 2026', t:'WPW is drawn by the 3D heart; a truer LAFB', li:[
+ { v:'2.0.15', d:'21 Oct 2026', t:'WPW is drawn by the 3D heart; a truer LAFB; plateaus that sag; LBBB starts on the septum', li:[
+   '<b>The right bundle now lines the septum.</b> Its Purkinje fibres used to reach the septum&rsquo;s right face only near the apex, so in LBBB the RV free wall fired first and the QRS began pointing right, with Q waves in I and V6 that real LBBB does not have. The fibres now cover the right septal face, so LBBB begins right to left across the septum: no Q in I or V6, and a Q in aVR. The right-bundle timing and conduction speeds were refitted on the PTB-XL fitting half around this; the held-out score stays at 97.1%.',
+   '<b>Every cell&rsquo;s plateau now sags.</b> A real action potential does not hold flat in phase 2; it drifts down as the outward currents build. Each patch now loses 40% of its plateau height before phase 3, a value chosen against the PTB-XL fitting half (flat 97.15%, sagging 97.45%). This is what gives LBBB its discordant ST elevation in V1&ndash;V3, and it helps NSTEMI, old MI and LVH. Held-out score 97.1%.',
+   '<b>Re-checked honestly.</b> Every setting changed today was re-chosen using only the fitting half of PTB-XL, then the held-out half was scored once. One change was not supported and was removed (firing the posterior fascicle earlier in LAFB).',
    '<b>WPW pre-excitation now comes from the mesh.</b> A Kent bundle crosses onto the base of the left lateral wall 30 ms before the His bundle fires. From there the wave creeps through muscle alone, giving the delta wave, until the normal Purkinje wave arrives and the two fuse. Against PTB-XL WPW ECGs not used for fitting, 85 of 90 measurements now fall in range (70 before), lifting the held-out score from 95.2% to 95.9%.',
-   '<b>LAFB: the cut fascicle fills late.</b> With the anterior fascicle blocked, its Purkinje network is now refilled only through thin peripheral links (0.7 of the speed), so the anterosuperior wall really does activate last. That gives the late superior forces: deeper S in II and the lateral chest leads. PTB-XL LAFB 86 of 91 in range (82 before), QRS 116 ms. With the anterior fascicle cut, the posterior one now also fires 3 ms earlier, which removes the too-deep Q in aVL and V6: LAFB 87 of 91.',
+   '<b>LAFB: the cut fascicle fills late.</b> With the anterior fascicle blocked, its Purkinje network is now refilled only through thin peripheral links (0.7 of the speed), so the anterosuperior wall really does activate last. That gives the late superior forces: deeper S in II and the lateral chest leads. PTB-XL LAFB 86 of 91 in range (82 before), QRS 116 ms.',
    '<b>AVNRT at a typical rate.</b> It now runs at 150 bpm, the middle of PTB-XL SVT recordings, instead of 186. At 186 the long QT ran each T wave into the next QRS. AVNRT 89 of 90 in range (78 before).',
    '<b>WPW P wave is back.</b> The PR is now 110 ms, still short but long enough for the P wave to end as the delta wave begins; at 100 ms the two overlapped and the P could not be measured. WPW now matches PTB-XL on all 91 measurements.' ] },
  { v:'2.0.12', d:'20 Oct 2026', t:'The heart is now a three-dimensional mesh, and you can watch it; P waves the right size', li:[
