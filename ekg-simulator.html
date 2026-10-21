@@ -1567,7 +1567,7 @@ var RHYTHMS = [
   pearl:'A rate is not a diagnosis. Sinus bradycardia matters only when the patient is symptomatic from it &mdash; look at the blood pressure and the mental state, not the monitor.',
   feat:{ P:'Upright, uniform', PR:'160 ms', reg:'Regular' } },
 
-{ id:'stach', g:'sinus', label:'Sinus tachycardia', rate:132, rateTxt:'&gt;100', tone:'warn',
+{ id:'stach', g:'sinus', label:'Sinus tachycardia', rate:110, rateTxt:'&gt;100', tone:'warn',
   origin:'Sinoatrial node &middot; fast',
   tags:['Regular','Gradual onset','P may sit on T'],
   desc:'Sympathetic drive accelerates the sinus node. Onset and offset are gradual, the P axis stays normal, and at high rates the P wave climbs onto the preceding T wave.',
@@ -1602,7 +1602,7 @@ var RHYTHMS = [
   pearl:'Irregularly irregular <i>with</i> P waves is MAT; irregularly irregular <i>without</i> P waves is atrial fibrillation. Rate-control drugs behave very differently in the two.',
   feat:{ P:'Three or more shapes', PR:'Variable', reg:'Irregularly irregular' } },
 
-{ id:'avnrt', g:'atrial', label:'AVNRT (paroxysmal SVT)', rate:186, rateTxt:'150&ndash;250', tone:'warn',
+{ id:'avnrt', g:'atrial', label:'AVNRT (paroxysmal SVT)', rate:150, rateTxt:'150&ndash;250', tone:'warn',
   origin:'Re&ndash;entry inside the AV node',
   tags:['Regular','Abrupt onset','Pseudo R&prime; in V1'],
   desc:'A slow and a fast pathway inside the AV node form a re-entrant circuit. Atria and ventricles are activated almost simultaneously, so the retrograde P hides inside the QRS and shows only as a pseudo&ndash;R&prime; in V1 or a pseudo&ndash;S in the inferior leads.',
@@ -1697,7 +1697,7 @@ var RHYTHMS = [
   pearl:'Feel the pulse while you watch the monitor. Most of these ectopics do not open the aortic valve, so the palpable rate is half the electrical rate.',
   feat:{ P:'Before sinus beats only', PR:'Normal for sinus beats', reg:'Regularly irregular' } },
 
-{ id:'vt', g:'vent', label:'Monomorphic ventricular tachycardia', rate:162, rateTxt:'120&ndash;250', tone:'danger',
+{ id:'vt', g:'vent', label:'Monomorphic ventricular tachycardia', rate:175, rateTxt:'120&ndash;250', tone:'danger',
   origin:'Re&ndash;entry around ventricular scar',
   tags:['Wide','Regular','AV dissociation'],
   desc:'A fixed re-entrant circuit around scarred myocardium drives every beat from the same exit site, so every complex is identical, wide and regular. The atria carry on independently underneath.',
@@ -2487,6 +2487,7 @@ function buildMesh(){ MESH = (function(){
   }
   function leadVec(li, m){
     var Ld = LEADS[li];
+    if (typeof BEMLEAD === 'function'){ var bz = BEMLEAD(Ld.n, m); if (bz) return bz; }   /* the boundary-element torso, when present */
     if (!Ld.pos) return Ld.ax;
     /* the electrode sits on skin over a centimetre or two of chest wall, so
        no patch of heart is ever read as if it touched it: the distance is
@@ -2535,7 +2536,7 @@ function buildMesh(){ MESH = (function(){
            NS:NS, NP:NP, LV:LV, RV:RV };
 }());
   for (var pk in SEGPLAN) delete SEGPLAN[pk];
-  _segV = null; _segSet = null; SEGLIVE = {}; SEGAPLAN = {};
+  _segV = null; _segSet = null; SEGLIVE = {}; SEGAPLAN = {}; SEGRE = {};
 }
 
 /* Scar is not resting muscle - it is no muscle. A boundary reads only as
@@ -2543,6 +2544,18 @@ function buildMesh(){ MESH = (function(){
    leaves a hole in the heart's surface instead of a permanent injury
    current at its edge. The weights for each pattern of scar, once. */
 var SEGLIVE = {};
+/* the same, from a live fraction for every patch (a scar drawn patch by patch) */
+function segWeightsLive(live){
+  if (SEGLIVE.__mask === live && SEGLIVE.__w) return SEGLIVE.__w;
+  var M = MESH, NL = M.NL, K = M.K, W = new Float64Array(NL*K), DV = new Float64Array(3*K);
+  M.ecg.forEach(function(e, ei){
+    var f = Math.min(live[e.a], live[e.b]); if (!f) return;
+    for (var li = 0; li < NL; li++){ var w = M.EW[ei*NL + li]*f; W[li*K + e.a] += w; W[li*K + e.b] -= w; }
+    for (var q = 0; q < 3; q++){ var g = e.g*e.dir[q]*f; DV[e.a*3 + q] += g; DV[e.b*3 + q] -= g; }
+  });
+  SEGLIVE.__mask = live; SEGLIVE.__w = { W:W, DV:DV };
+  return SEGLIVE.__w;
+}
 function segWeights(zone){
   var M = MESH, key = zone ? JSON.stringify(zone) : '';
   if (!key) return { W:M.W, DV:M.DV };
@@ -2558,7 +2571,186 @@ function segWeights(zone){
   return (SEGLIVE[key] = { W:W, DV:DV });
 }
 
+/* =====================================================================
+   RE-ENTRY ON THE MESH
+   A beat that does not come from the conduction system but goes round and
+   round: the wave keeps travelling, and every patch fires again as soon as
+   the wave reaches it once it has recovered. Monomorphic VT is the classic
+   case - a healed infarct leaves a scar through the inferolateral wall with
+   one channel of surviving, slowly conducting muscle threaded through it.
+   Started in that channel with the muscle just beyond its entrance still
+   refractory, the wave can only go one way: down the channel, out of its
+   far end into healthy muscle, round both sides of the scar and back into
+   the channel's entrance, which by then has recovered. The tachycardia's
+   rate is not chosen: it is however long one lap of that circuit takes.
+===================================================================== */
+var VTSCAR = { phi:150, half:42, s0:0.30, s1:0.78, slow:0.08 };   /* centre and half-width (deg), extent down the wall, channel speed factor */
+var SEGRE = {};
+function segEdgeDt(e, dead){
+  var V = SEGV, M = MESH, dt;
+  if (e.kind === 'myo'){ var vt = V.cross || V.myo; dt = e.c2 === undefined ? e.d/V.myo : e.d*Math.sqrt(e.c2/(V.myo*V.myo) + (1 - e.c2)/(vt*vt)); if (e.trab) dt /= (V.rvtrab || 1); }
+  else if (e.kind === 'trans') dt = (e.tf || 2)*e.d/V.trans;
+  else if (e.kind === 'atr') dt = e.d/V.atr;
+  else if (e.kind === 'bach') dt = e.d/V.bach;
+  else if (e.kind === 'purk') dt = e.d/V.purk;
+  else if (e.kind === 'xdiv') dt = e.d/(V.purk*V.xdiv);
+  else if (e.kind === 'pmj') dt = V.pmj;
+  else { var pn = M.purk[e.to - M.NC]; dt = (pn && dead && (dead[pn.net] || dead[pn.div])) ? V.ret*SEGDEADRET : V.ret; }
+  return dt;
+}
+/* the circuit, run until it repeats; one lap of it as a beat */
+function reentryPlan(){
+  if (SEGRE.vt && SEGRE.mesh === MESH) return SEGRE.vt;
+  var M = MESH, NC = M.NC, N = M.adj.length, NV = M.NV, i;
+  var c0 = VTSCAR.phi*D2R, hw = VTSCAR.half*D2R;
+  function dphi(a){ return Math.abs(((a - c0 + 3*Math.PI) % (2*Math.PI)) - Math.PI); }
+  /* the channel: the one sector nearest the scar's centre */
+  var chSec = -1, bd = 9;
+  M.cells.forEach(function(c){ if (c.side === 'lv' && !c.cap && dphi(c.phi) < bd){ bd = dphi(c.phi); chSec = c.sec; } });
+  var role = new Int8Array(N);           /* 0 healthy, 1 scar, 2 channel */
+  M.cells.forEach(function(c, k){
+    if (c.side !== 'lv' || c.reg === 'sept' || c.cap || c.pm) return;
+    if (dphi(c.phi) <= hw && c.s >= VTSCAR.s0 && c.s <= VTSCAR.s1) role[k] = c.sec === chSec ? 2 : 1;
+  });
+  /* scar has no Purkinje fibres either */
+  M.purk.forEach(function(p){ if (role[p.cell] === 1) role[p.k] = 1; });
+  var CHR = { min:99, max:-1 };
+  M.cells.forEach(function(c, k){ if (role[k] === 2){ CHR.min = Math.min(CHR.min, c.ring); CHR.max = Math.max(CHR.max, c.ring); } });
+  /* event-driven: a patch fires when a wave reaches it once it has recovered */
+  var ERP = 0.27*1000*SEGAPDK, last = new Float64Array(N), acts = [];
+  for (i = 0; i < N; i++){ last[i] = -1e9; acts.push([]); }
+  var hk = [], ht = [];
+  function push(k, t){ hk.push(k); ht.push(t); var c = hk.length - 1;
+    while (c > 0){ var p = (c-1) >> 1; if (ht[p] <= ht[c]) break; var a = hk[p]; hk[p] = hk[c]; hk[c] = a; var b = ht[p]; ht[p] = ht[c]; ht[c] = b; c = p; } }
+  function pop(){ var k = hk[0], t = ht[0], lk = hk.pop(), lt = ht.pop();
+    if (hk.length){ hk[0] = lk; ht[0] = lt; var c = 0;
+      for (;;){ var l = 2*c+1, r = l+1, m = c; if (l < hk.length && ht[l] < ht[m]) m = l; if (r < hk.length && ht[r] < ht[m]) m = r;
+        if (m === c) break; var a = hk[m]; hk[m] = hk[c]; hk[c] = a; var b = ht[m]; ht[m] = ht[c]; ht[c] = b; c = m; } }
+    return [k, t]; }
+  /* start: the channel's entrance fires; the healthy muscle just beyond it is still refractory */
+  M.cells.forEach(function(c, k){
+    if (role[k] === 2 && c.ring === CHR.min) push(k, 0);
+    if (role[k] === 0 && c.side === 'lv' && c.ring === CHR.min - 1 && dphi(c.phi) <= hw + 0.4) last[k] = -5;
+  });
+  var TMAX = 6000;
+  while (hk.length){
+    var top = pop(), k = top[0], t = top[1];
+    if (t > TMAX) break;
+    if (role[k] === 1 || t - last[k] < ERP) continue;
+    last[k] = t; if (k < NC) acts[k].push(t);
+    var ed = M.adj[k];
+    for (i = 0; i < ed.length; i++){
+      var e = ed[i], to = e.to; if (role[to] === 1 || to >= NC && M.purk[to - NC] && role[M.purk[to - NC].cell] === 1) continue;
+      var dt = segEdgeDt(e, null);
+      if (role[k] === 2 && role[to] === 2) dt /= VTSCAR.slow;          /* down the channel, slowly */
+      push(to, t + dt);
+    }
+  }
+  /* the exit: the channel's far end; the lap it begins */
+  var exitK = -1; M.cells.forEach(function(c, k){ if (exitK < 0 && role[k] === 2 && c.ring === CHR.max && c.lay === 0) exitK = k; });
+  var ex = acts[exitK] || [];
+  if (ex.length < 4){ SEGRE = { mesh:MESH, vt:null }; return null; }
+  var t0 = ex[ex.length - 2], CL = ex[ex.length - 1] - ex[ex.length - 2];
+  var off = new Float64Array(NC), live = new Float32Array(NC), lo = 1e9, hi = -1e9;
+  for (k = 0; k < NC; k++){
+    live[k] = role[k] === 1 ? 0 : 1;
+    if (k >= NV){ off[k] = Infinity; continue; }                      /* the atria keep their own beat */
+    var a = acts[k], best = Infinity;
+    for (var j = 0; j < a.length; j++){ var d = a[j] - t0; if (d >= -0.4*CL && d < 0.6*CL){ best = d; break; } }
+    off[k] = best;
+    if (isFinite(best) && role[k] === 0){ if (best < lo) lo = best; if (best > hi) hi = best; }
+  }
+  /* what the QRS is: the healthy muscle's activation, exit to last patch */
+  var bulk = []; for (k = 0; k < NV; k++) if (role[k] === 0 && isFinite(off[k])) bulk.push(off[k]);
+  bulk.sort(function(x, y){ return x - y; });
+  var qrs = bulk.length ? bulk[Math.floor(bulk.length*0.98)] - bulk[0] : 160;
+  SEGRE = { mesh:MESH, vt:{ t:off, live:live, CL:CL, dur:qrs, start:bulk[0] || 0, laps:ex.length } };
+  return SEGRE.vt;
+}
+/* Typical atrial flutter: the same idea in the right atrium. The wave goes
+   round the tricuspid ring - down the lateral wall, through the narrow,
+   slowly conducting floor between the inferior vena cava and the valve
+   (the cavotricuspid isthmus, the line an ablation burns), up the septum
+   and across the roof - because the back of the atrium does not let it
+   cut across: the crista terminalis and the veins behind it are a line of
+   block. Counter-clockwise, seen from the ventricle, as in nine of ten. The
+   left atrium follows passively each lap, through Bachmann's bundle and
+   the coronary sinus. */
+/* off: the circuit runs (186 ms, 323/min) but a ring this narrow gives too small a wave to show the sawtooth, so the template draws flutter until the whole atrial wall takes part */
+var FLUT = { on:false, block:-0.15, floor:0.8, cti:0.10, erp:150 };   /* back-wall block cosine, isthmus (how far down it faces), its speed factor, atrial ERP (ms) */
+function flutterPlan(){
+  if (SEGRE.fl && SEGRE.flMesh === MESH) return SEGRE.fl;
+  var M = MESH, NC = M.NC, NV = M.NV, N = M.adj.length, i, k;
+  var ra = []; for (k = NV; k < NC; k++) if (M.cells[k].side === 'ra') ra.push(k);
+  if (!ra.length) return null;
+  /* the valve's direction from the atrium: where the open ring faces */
+  var cR = [0,0,0]; ra.forEach(function(q){ var p = M.cells[q].pos; cR[0] += p[0]; cR[1] += p[1]; cR[2] += p[2]; });
+  cR = cR.map(function(v){ return v/ra.length; });
+  var toV = nrm([-cR[0], -cR[1], -cR[2]]);
+  var role = new Int8Array(N);   /* 0 conducts, 1 block, 3 isthmus */
+  ra.forEach(function(q){ var n = M.cells[q].nrm, c = n[0]*toV[0] + n[1]*toV[1] + n[2]*toV[2];
+    if (c < FLUT.block) role[q] = 1;                    /* the back wall: crista and veins */
+    else if (n[1] > FLUT.floor) role[q] = 3;            /* the floor: the cavotricuspid isthmus */
+  });
+  var isth = ra.filter(function(q){ return role[q] === 3; });
+  if (!isth.length) return null;
+  /* angle round the valve's axis: the ring runs this way. Start in the
+     middle of the isthmus with the ring on one side of it still refractory,
+     so the wave can only go the other way round (counter-clockwise). */
+  var ax1 = nrm([toV[1], -toV[0], 0]), ax2 = [toV[1]*ax1[2]-toV[2]*ax1[1], toV[2]*ax1[0]-toV[0]*ax1[2], toV[0]*ax1[1]-toV[1]*ax1[0]];
+  function ang(q){ var p = M.cells[q].pos, d = [p[0]-cR[0], p[1]-cR[1], p[2]-cR[2]]; return Math.atan2(d[0]*ax2[0]+d[1]*ax2[1]+d[2]*ax2[2], d[0]*ax1[0]+d[1]*ax1[1]+d[2]*ax1[2]); }
+  var mid = 0; isth.forEach(function(q){ mid += ang(q); }); mid /= isth.length;
+  isth.sort(function(a, b){ return Math.abs(ang(a) - mid) - Math.abs(ang(b) - mid); });
+  var st = isth[0], last = new Float64Array(N), acts = [];
+  for (i = 0; i < N; i++){ last[i] = -1e9; acts.push([]); }
+  ra.forEach(function(q){ var d = ((ang(q) - ang(st) + 3*Math.PI) % (2*Math.PI)) - Math.PI; if (role[q] !== 1 && d < -0.05 && d > -1.4) last[q] = 40 - FLUT.erp; });   /* recovered by 40 ms: blocks the first turn back, not the return */
+  var hk = [], ht = [];
+  function push(k, t){ hk.push(k); ht.push(t); var c = hk.length - 1;
+    while (c > 0){ var p = (c-1) >> 1; if (ht[p] <= ht[c]) break; var a = hk[p]; hk[p] = hk[c]; hk[c] = a; var b = ht[p]; ht[p] = ht[c]; ht[c] = b; c = p; } }
+  function pop(){ var k = hk[0], t = ht[0], lk = hk.pop(), lt = ht.pop();
+    if (hk.length){ hk[0] = lk; ht[0] = lt; var c = 0;
+      for (;;){ var l = 2*c+1, r = l+1, m = c; if (l < hk.length && ht[l] < ht[m]) m = l; if (r < hk.length && ht[r] < ht[m]) m = r;
+        if (m === c) break; var a = hk[m]; hk[m] = hk[c]; hk[c] = a; var b = ht[m]; ht[m] = ht[c]; ht[c] = b; c = m; } }
+    return [k, t]; }
+  push(st, 0);
+  while (hk.length){
+    var top = pop(), q = top[0], t = top[1];
+    if (t > 4000) break;
+    if (role[q] === 1 || t - last[q] < FLUT.erp) continue;
+    last[q] = t; acts[q].push(t);
+    M.adj[q].forEach(function(e){ if (e.to < NV || e.to >= NC || role[e.to] === 1) return;
+      var dt = segEdgeDt(e, null); if (role[q] === 3 && role[e.to] === 3) dt /= FLUT.cti; push(e.to, t + dt); });
+  }
+  var ex = acts[st];
+  if (ex.length < 4){ SEGRE.fl = null; SEGRE.flMesh = MESH; return null; }
+  var t0 = ex[ex.length - 2], CL = ex[ex.length - 1] - ex[ex.length - 2], off = new Float64Array(NC);
+  for (k = 0; k < NC; k++){
+    off[k] = Infinity; if (k < NV) continue;
+    var a = acts[k]; for (var j = 0; j < a.length; j++){ var d = a[j] - t0; if (d >= 0 && d < CL){ off[k] = d; break; } }
+  }
+  SEGRE.fl = { T:off, CL:CL, laps:ex.length }; SEGRE.flMesh = MESH;
+  return SEGRE.fl;
+}
+
+/* one lap of the circuit as a beat: emitSeg with the lap's timings and the scar silent */
+function emitReentry(b, t, rr, sc){
+  var R = reentryPlan(); if (!R) return null;
+  var tt = new Float64Array(R.t.length);
+  for (var i = 0; i < tt.length; i++) tt[i] = isFinite(R.t[i]) ? R.t[i] - R.start : Infinity;
+  emitSeg(b, t, 'vtLV', R.CL/1000, sc, { t:tt, tp:{}, dur:R.dur, wide:true, heart:{ his:null }, block:null, block2:null }, R.live);
+  return R.CL/1000;
+}
+
 /* the time the wave reaches every patch, from wherever it was let in */
+/* LBBB only: extra ms before the moderator band's wave reaches the RV free wall, and how fast the wave crosses the wall */
+var SEGLBBB = { mod:0, trans:1, sept:null, s:0.5 };
+function rvsEntry(){
+  var M = MESH, best = -1, bd = Infinity;
+  for (var i = 0; i < M.NC; i++){ var c = M.cells[i]; if (c.side !== 'rvs') continue; var d = Math.abs(c.s - SEGLBBB.s); if (d < bd){ bd = d; best = i; } }
+  return best;
+}
+var SEGLPFLATE = -3;  /* ms added to the posterior fascicle when the anterior is cut: it runs a touch early (PTB-XL LAFB 87/91; later times scored worse) */
+var SEGXDEAD = 0.7;   /* PTB-XL LAFB 86/91 held-out, QRS 115 ms (82/91 at 1). How well a cut fascicle's Purkinje net is refilled from the other one */
 function segSolve(sources, opt){
   var M = MESH, N = M.adj.length, T = new Float64Array(N), i;
   for (i = 0; i < N; i++) T[i] = Infinity;
@@ -2581,11 +2773,11 @@ function segSolve(sources, opt){
     for (i = 0; i < ed.length; i++){
       var e = ed[i], dt;
       if (e.kind === 'myo'){ var vt = V.cross || V.myo; dt = e.c2 === undefined ? e.d/V.myo : e.d*Math.sqrt(e.c2/(V.myo*V.myo) + (1 - e.c2)/(vt*vt)); if (e.trab) dt /= (V.rvtrab || 1); }
-      else if (e.kind === 'trans') dt = (e.tf || 2)*e.d/V.trans;
+      else if (e.kind === 'trans') dt = (e.tf || 2)*e.d/(V.trans*(opt.transK || 1));
       else if (e.kind === 'atr') dt = e.d/V.atr;
       else if (e.kind === 'bach') dt = e.d/V.bach;
       else if (e.kind === 'purk') dt = e.d/V.purk;
-      else if (e.kind === 'xdiv') dt = e.d/(V.purk*V.xdiv);
+      else if (e.kind === 'xdiv') dt = e.d/(V.purk*V.xdiv*((dead.A || dead.P) ? SEGXDEAD : 1));   /* into a cut fascicle's net: only by thin peripheral links */
       else if (e.kind === 'pmj') dt = V.pmj;
       else { var pn = M.purk[e.to - M.NC];    /* a cut bundle's or fascicle's own fibres are hard to enter from the muscle */
         dt = (pn && (dead[pn.net] || dead[pn.div])) ? V.ret*SEGDEADRET : V.ret; }
@@ -2600,17 +2792,31 @@ function segSolve(sources, opt){
 var SEGPLAN = {};
 var _segV = null, _segSet = null;
 buildMesh();
+/* the mesh draws these: the bundle blocks, and pre-excitation through a Kent bundle */
+var SEGKEYS = (function(){ var o = {}; for (var k in VPLANKEYS) o[k] = VPLANKEYS[k]; o.wpw = ['kent']; return o; }());
+/* the accessory pathway: where it crosses onto the ventricle (an LV wall, at the base), and how many ms
+   before the His bundle it gets there - the time the AV node holds the normal wave back */
+var KENT = { reg:'lvlat', lead:30, depth:1 };   /* left lateral, 30 ms: best of the sites tried against PTB-XL WPW (85/90 held-out) */
+function kentCell(){
+  var M = MESH, best = -1, bs = Infinity;
+  for (var i = 0; i < M.NC; i++){ var c = M.cells[i]; if (c.side !== 'lv' || c.reg !== KENT.reg) continue;
+    var q = c.qn === undefined ? (c.mem === 'epi' ? 1 : 0) : c.qn, sc = c.s + 0.3*Math.abs(q - KENT.depth); if (sc < bs){ bs = sc; best = i; } }
+  return best;
+}
 function segPlan(blocked, stretch){
   var key = (blocked || []).join(',') + '|' + (stretch || 1);
   if (SEGPLAN[key]) return SEGPLAN[key];
   var dead = {}, M = MESH, E = M.ENTRY, src = [];
   (blocked || []).forEach(function(k){ dead[k] = 1; });
   if (dead.lbb){ dead.laf = 1; dead.lpf = 1; dead.lsf = 1; }
+  /* LBBB: the right bundle's fibres line the right side of the septum, so the wave breaks out there and crosses it right to left */
+  if (dead.lbb && !dead.rbb && SEGLBBB.sept !== null){ var rs = rvsEntry(); if (rs >= 0) src.push([rs, SEGARR.rbb + SEGLBBB.sept]); }
+  if (dead.kent){ var kc = kentCell(); if (kc >= 0) src.push([kc, -KENT.lead]); dead.kent = 0; }
   if (!dead.lsf) src.push([E.lsf, SEGARR.lbb]);
   if (!dead.laf) src.push([E.laf, SEGARR.laf]);
-  if (!dead.lpf) src.push([E.lpf, SEGARR.lpf]);
-  if (!dead.rbb){ src.push([E.rbb, SEGARR.rbb]); src.push([E.mod, SEGARR.rbb + (E.modLen === undefined ? 3 : E.modLen/SEGV.purk)]); }
-  var T = segSolve(src, { stretch:stretch, deadPurk:{ L:!!dead.lbb, R:!!dead.rbb, A:!!dead.laf, P:!!dead.lpf } });
+  if (!dead.lpf) src.push([E.lpf, SEGARR.lpf + (dead.laf ? SEGLPFLATE : 0)]);   /* with the anterior fascicle cut, the posterior one may fire later */
+  if (!dead.rbb){ src.push([E.rbb, SEGARR.rbb]); src.push([E.mod, SEGARR.rbb + (E.modLen === undefined ? 3 : E.modLen/SEGV.purk) + (dead.lbb ? SEGLBBB.mod : 0)]); }
+  var T = segSolve(src, { stretch:stretch, transK:dead.lbb ? SEGLBBB.trans : 1, deadPurk:{ L:!!dead.lbb, R:!!dead.rbb, A:!!dead.laf, P:!!dead.lpf } });
   var NC = M.NC, NV = M.NV, t0 = Infinity, t1 = -Infinity, i;
   for (i = 0; i < NV; i++){ if (T[i] < t0) t0 = T[i]; if (T[i] > t1) t1 = T[i]; }
   var t = new Float64Array(NC); for (i = 0; i < NC; i++) t[i] = T[i] - t0;
@@ -2638,6 +2844,7 @@ function segPlan(blocked, stretch){
     if (dead.lpf && pP && pA) H.purkly = [pA[0], pP[0]];
   }
   H.purkr = dead.rbb ? null : pwin(function(p){ return p.net === 'R'; });
+  if ((blocked || []).indexOf('kent') >= 0){ H.kent = [0, 12]; ['his','rbb','lbb','laf','lpf'].forEach(function(k){ if (H[k]) H[k] = [H[k][0] + KENT.lead + 30, H[k][1] + KENT.lead + 30]; }); }
   var plan = { t:t, tp:tp, dur:t1 - t0, wide:(t1 - t0) >= 120, heart:H,
                block:(blocked && blocked[0]) || null, block2:(blocked && blocked[1]) || null };
   SEGPLAN[key] = plan;
@@ -2671,15 +2878,190 @@ function segNotch(c, flat){
   return ENDONOTCH + (outer - ENDONOTCH)*q;
 }
 
+/* =====================================================================
+   THE CELLS, AS MEMBRANES
+   Every patch's action potential comes from a model of the human
+   ventricular membrane - the minimal model of Bueno-Orovio, Cherry and
+   Fenton (2008): one fast inward current, one slow inward current, one
+   outward current and their gates, with the parameters they fitted for
+   epicardial, mid-wall (M) and endocardial cells. Its shape - the
+   upstroke, the epicardial notch and dome, the plateau, the curve of
+   phase three - and how that shape changes with rate are the membrane's
+   own. The patch keeps the duration the PTB-XL fit gave it; the membrane
+   says how it gets there. Neighbouring cells are electrically coupled,
+   which smooths their differences, so only a fraction (couple) of how far
+   an epicardial or M cell departs from the endocardial shape survives.
+   Diseases change the membrane: ionMod scales its currents.
+===================================================================== */
+/* off: on this four-layer mesh with no coupling between patches, the membrane's steep phase three makes each layer
+   recover as its own hump and the normal T wave turns bifid; it waits for the reaction-diffusion solver */
+var IONIC = { on:false, couple:{ epi:0.15, m:0.15 }, cache:{} };
+var IONPAR = {
+  epi:  { uo:0, uu:1.55, thv:0.3, thw:0.13, thvm:0.006, tho:0.006, tv1m:60, tv2m:1150, tvp:1.4506, tw1m:60, tw2m:15, kwm:65, uwm:0.03, twp:200,
+          tfi:0.11, to1:400, to2:6, tso1:30.0181, tso2:0.9957, kso:2.0458, uso:0.65, ts1:2.7342, ts2:16, ks:2.0994, us:0.9087, tsi:1.8875, twinf:0.07, winfs:0.94 },
+  endo: { uo:0, uu:1.56, thv:0.3, thw:0.13, thvm:0.2, tho:0.006, tv1m:75, tv2m:10, tvp:1.4506, tw1m:6, tw2m:140, kwm:200, uwm:0.016, twp:280,
+          tfi:0.1, to1:470, to2:6, tso1:40, tso2:1.2, kso:2, uso:0.65, ts1:2.7342, ts2:2, ks:2.0994, us:0.9087, tsi:2.9013, twinf:0.0273, winfs:0.78 },
+  m:    { uo:0, uu:1.61, thv:0.3, thw:0.13, thvm:0.1, tho:0.005, tv1m:80, tv2m:1.4506, tvp:1.4506, tw1m:70, tw2m:8, kwm:200, uwm:0.016, twp:280,
+          tfi:0.078, to1:410, to2:7, tso1:91, tso2:0.8, kso:2.1, uso:0.6, ts1:2.7342, ts2:4, ks:2.0994, us:0.9087, tsi:3.3849, twinf:0.01, winfs:0.5 }
+};
+/* one cell paced to steady state at bcl ms; the last beat's u, every ms, and when it is 90% recovered */
+function ionRun(p, bcl){
+  var dt = 0.02, steps = Math.round(bcl/dt), every = Math.round(1/dt), u = 0, v = 1, w = 1, s = 0, out = null, a90 = 0, gates = null;
+  function Hf(x){ return x > 0 ? 1 : 0; }
+  for (var b = 0; b < 5; b++){
+    var last = b === 4, umax = 0, up = -1; if (last) out = new Float32Array(Math.ceil(steps/every) + 1);
+    for (var i = 0; i < steps; i++){
+      var t = i*dt, stim = t < 1 ? 0.5 : 0;
+      var tvm = Hf(u - p.thvm) ? p.tv2m : p.tv1m, twm = p.tw1m + (p.tw2m - p.tw1m)*(1 + Math.tanh(p.kwm*(u - p.uwm)))/2;
+      var tso = p.tso1 + (p.tso2 - p.tso1)*(1 + Math.tanh(p.kso*(u - p.uso)))/2, ts = Hf(u - p.thw) ? p.ts2 : p.ts1, to = Hf(u - p.tho) ? p.to2 : p.to1;
+      var vinf = u < p.thvm ? 1 : 0, winf = Hf(u - p.tho) ? p.winfs : (1 - u/p.twinf);
+      var Jfi = -v*Hf(u - p.thv)*(u - p.thv)*(p.uu - u)/p.tfi, Jso = (u - p.uo)*(1 - Hf(u - p.thw))/to + Hf(u - p.thw)/tso, Jsi = -Hf(u - p.thw)*w*s/p.tsi;
+      u += dt*(-(Jfi + Jso + Jsi) + stim);
+      v += dt*((1 - Hf(u - p.thv))*(vinf - v)/tvm - Hf(u - p.thv)*v/p.tvp);
+      w += dt*((1 - Hf(u - p.thw))*(winf - w)/twm - Hf(u - p.thw)*w/p.twp);
+      s += dt*(((1 + Math.tanh(p.ks*(u - p.us)))/2 - s)/ts);
+      if (last){ if (i === steps - 1) gates = [u, v, w, s]; if (i % every === 0) out[i/every] = u; if (u > umax) umax = u; if (up < 0 && umax > 0.5) up = t; if (up >= 0 && !a90 && t > up + 5 && u < 0.1*umax) a90 = t; }
+    }
+  }
+  return { u:out, apd:a90 || bcl*0.9, gates:gates };
+}
+/* the shape a patch of this kind follows, at this rate: rest 0, plateau 1 */
+function ionShape(kind, bcl, mod){
+  var key = kind + '|' + Math.round(bcl/40)*40 + '|' + (mod ? JSON.stringify(mod) : '');
+  if (IONIC.cache[key]) return IONIC.cache[key];
+  function par(k){ var p = {}, q = IONPAR[k]; for (var x in q) p[x] = q[x]; if (mod) for (var y in mod) if (p[y] !== undefined) p[y] *= mod[y]; return p; }
+  var b = Math.round(bcl/40)*40, E = ionRun(par('endo'), b);
+  /* the yardstick is the normal endocardial cell at this rate: a membrane change
+     then shortens, lengthens or lowers the action potential as it does in the cell */
+  var R0 = mod ? ionShape('endo', bcl, null) : null, plat = R0 ? R0.plat : (E.u[60] || 1.2), rapd = R0 ? R0.apd : E.apd;
+  var res;
+  if (kind === 'endo') res = { u:E.u, apd:rapd, plat:plat };
+  else {
+    var K = ionRun(par(kind), b), c = IONIC.couple[kind] || 0, n = Math.min(E.u.length, K.u.length), u = new Float32Array(n);
+    /* what survives coupling: the endocardial shape, moved this far towards the cell's own, both on the endocardium's time base */
+    var sc = E.apd/K.apd;
+    for (var i = 0; i < n; i++){ var j = Math.min(K.u.length - 1, i/sc), j0 = Math.floor(j), f = j - j0, kv = K.u[j0]*(1 - f) + (K.u[Math.min(K.u.length - 1, j0 + 1)] || 0)*f; u[i] = E.u[i] + c*(kv - E.u[i]); }
+    res = { u:u, apd:rapd, plat:plat };
+  }
+  return (IONIC.cache[key] = res);
+}
+function ionKind(c){
+  if (c.atr) return null;
+  var q = c.qn === undefined ? (c.mem === 'epi' ? 1 : 0) : c.qn;
+  if (c.reg === 'sept' || c.side === 'rvs') return q > 0.2 && q < 0.8 ? 'm' : 'endo';
+  return q < 0.2 ? 'endo' : (q > 0.8 ? 'epi' : 'm');
+}
+/* a patch's voltage above rest at t: the membrane's shape, stretched to the patch's own duration */
+function segVmCell(P, t){
+  if (P.rw){ var m0 = (t - P.t0)*1000, mi = Math.floor(m0), r0 = P.rp || 0; if (mi < 0) return r0; if (mi >= P.rL - 1) return r0;
+    var wv = P.rw[P.ri + mi] + (P.rw[P.ri + mi + 1] - P.rw[P.ri + mi])*(m0 - mi); return r0 + (1 - r0)*Math.max(0, wv); }
+  if (!P.sh) return vmLayer(P, t);
+  var u = t - P.ta, r = P.rp || 0; if (u <= 0) return r;
+  var k = u*1000*P.sh.apd/(P.apd*1000), i0 = Math.floor(k), A = P.sh.u;
+  if (i0 >= A.length - 1) return r;
+  var v = (A[i0] + (A[i0 + 1] - A[i0])*(k - i0))/P.sh.plat;
+  return r + (1 - r)*Math.max(0, v);
+}
+
+/* =====================================================================
+   RECOVERY AS REACTION-DIFFUSION
+   The wavefront is under a millimetre thick and these patches are several
+   millimetres apart, so when the wave arrives is still found the fast way
+   (above). But recovery is slow - a hundred milliseconds of phase three -
+   and on that scale the patches can be treated as what they are: pieces
+   of membrane joined to their neighbours. From the moment the wave reaches
+   it, every patch runs the ionic model (Bueno-Orovio, Cherry & Fenton),
+   and current flows between touching patches in proportion to their
+   voltage difference and the area they share. Neighbours therefore pull
+   each other's recovery together: the steep phase three of the membrane
+   becomes a smooth T wave, and a change in a current - more potassium
+   current in hyperkalaemia - acts through the tissue as it does in life.
+   RD.D is how strongly patches are coupled; the beat is computed once per
+   pattern and rate, then replayed.
+===================================================================== */
+var RD = { on:false, D:0.0012, dt:0.2, len:620, cache:{} };    /* D in cm^2/ms: human ventricular muscle, about 1 cm^2/s */
+function rdBeat(plan, rr, MOD, apdMs, key0){
+  var M = MESH, NV = M.NV, i, j, k;
+  var bcl = Math.round((rr || 0.85)*1000/40)*40, mod = MOD && MOD.ionMod;
+  var key = (key0 || '') + '|' + bcl + '|' + (mod ? JSON.stringify(mod) : '') + '|' + RD.D;
+  if (RD.cache[key]) return RD.cache[key];
+  /* who touches whom, and how strongly: built once per mesh */
+  if (!RD.net || RD.net.mesh !== M){
+    var cnt = new Int32Array(NV + 1), pairs = [];
+    M.ecg.forEach(function(e){
+      if (e.a >= NV || e.b >= NV) return;
+      var pa = M.cells[e.a].pos, pb = M.cells[e.b].pos;
+      var d = Math.max(0.1, Math.sqrt((pa[0]-pb[0])*(pa[0]-pb[0]) + (pa[1]-pb[1])*(pa[1]-pb[1]) + (pa[2]-pb[2])*(pa[2]-pb[2])));
+      pairs.push([e.a, e.b, e.g/d]); cnt[e.a + 1]++; cnt[e.b + 1]++;
+    });
+    for (i = 0; i < NV; i++) cnt[i + 1] += cnt[i];
+    var idx = new Int32Array(cnt[NV]), wgt = new Float64Array(cnt[NV]), fill = cnt.slice(0, NV);
+    var vol = new Float64Array(NV);
+    for (i = 0; i < NV; i++){ var c = M.cells[i]; vol[i] = Math.max(0.05, (c.A || 1)*(c.h || 1)/(c.nl || 2)); }
+    pairs.forEach(function(p){ idx[fill[p[0]]] = p[1]; wgt[fill[p[0]]++] = p[2]/vol[p[0]]; idx[fill[p[1]]] = p[0]; wgt[fill[p[1]]++] = p[2]/vol[p[1]]; });
+    RD.net = { mesh:M, start:cnt, idx:idx, wgt:wgt };
+  }
+  var NET = RD.net, st = NET.start, nidx = NET.idx, nw = NET.wgt;
+  /* one membrane for every patch - the endocardial - with its plateau gate set so the patch lasts as long as the
+     PTB-XL fit says it should: that duration already carries the layer, the wall, apex to base and any disease */
+  var p = {}, q0 = IONPAR.endo; for (var x in q0) p[x] = q0[x];
+  if (mod) for (var y in mod) if (p[y] !== undefined) p[y] *= mod[y];
+  var g0 = ionRun(p, bcl).gates || [0, 1, 1, 0], refApd = ionShape('endo', bcl, mod ? mod : null).apd;
+  var twp = new Float64Array(NV), until = new Float64Array(NV);
+  for (i = 0; i < NV; i++){
+    var F = (apdMs && apdMs[i] > 0) ? apdMs[i]/refApd : 1;
+    twp[i] = p.twp*clamp((F - 0.3)/0.7, 0.25, 3.5);
+    until[i] = isFinite(plan.t[i]) ? plan.t[i] + (apdMs && apdMs[i] > 0 ? apdMs[i] : refApd)*1.35 + 60 : -1;
+  }
+  var u = new Float64Array(NV), v = new Float64Array(NV), w = new Float64Array(NV), s = new Float64Array(NV), on = new Uint8Array(NV), du = new Float64Array(NV);
+  for (i = 0; i < NV; i++){ v[i] = g0[1]; w[i] = g0[2]; s[i] = g0[3]; }
+  var L = RD.len, wave = new Float32Array(NV*L), dt = RD.dt, steps = Math.round(L/dt), per = Math.round(1/dt), ta = plan.t, D = RD.D;
+  var thv = p.thv, thw = p.thw, thvm = p.thvm, tho = p.tho, uuP = p.uu, uo = p.uo;
+  function step(i, h){
+    var uu = u[i], aw = uu > thw, av = uu > thv, ao = uu > tho;
+    var tvm = uu > thvm ? p.tv2m : p.tv1m, twm = p.tw1m + (p.tw2m - p.tw1m)*(1 + Math.tanh(p.kwm*(uu - p.uwm)))/2;
+    var tso = p.tso1 + (p.tso2 - p.tso1)*(1 + Math.tanh(p.kso*(uu - p.uso)))/2, ts = aw ? p.ts2 : p.ts1, to = ao ? p.to2 : p.to1;
+    var Jfi = av ? -v[i]*(uu - thv)*(uuP - uu)/p.tfi : 0;
+    var Jso = aw ? 1/tso : (uu - uo)/to;
+    var Jsi = aw ? -w[i]*s[i]/p.tsi : 0;
+    v[i] += h*(av ? -v[i]/p.tvp : ((uu < thvm ? 1 : 0) - v[i])/tvm);
+    w[i] += h*(aw ? -w[i]/twp[i] : ((ao ? p.winfs : 1 - uu/p.twinf) - w[i])/twm);
+    s[i] += h*(((1 + Math.tanh(p.ks*(uu - p.us)))/2 - s[i])/ts);
+    u[i] = uu + h*(-(Jfi + Jso + Jsi) + du[i]);
+  }
+  for (var n = 0; n < steps; n++){
+    var t = n*dt;
+    for (i = 0; i < NV; i++){
+      du[i] = 0;
+      if (!on[i] || t > until[i]) continue;
+      var acc = 0, ui = u[i];
+      for (j = st[i]; j < st[i + 1]; j++){ var q = nidx[j]; if (on[q]) acc += nw[j]*(u[q] - ui); }
+      du[i] = D*acc;
+    }
+    for (i = 0; i < NV; i++){
+      if (!on[i]){ if (isFinite(ta[i]) && t >= ta[i]){ on[i] = 1; u[i] = 1.3; } else continue; }
+      if (t > until[i]) continue;                                         /* long since recovered */
+      if (t - ta[i] < 3){ for (k = 0; k < 10; k++) step(i, dt/10); }     /* the upstroke, in small steps */
+      else step(i, dt);
+    }
+    if (n % per === 0){ var m0 = (n/per)|0; if (m0 < L) for (i = 0; i < NV; i++) wave[i*L + m0] = on[i] && t <= until[i] ? u[i] : 0; }
+  }
+  /* rest 0, plateau 1, by the endocardial cell's own plateau */
+  var plat = (ionShape('endo', bcl, null).plat) || 1.2;
+  for (i = 0; i < wave.length; i++) wave[i] /= plat;
+  return (RD.cache[key] = { wave:wave, L:L });
+}
+
 /* One atrial beat on the mesh: the wave spreads from where the beat
    starts through both atria, and each atrial patch runs a short action
    potential of its own. The ventricles' patches are not touched. */
 var SEGATRIA = true;                /* with the mesh on, the P wave comes from the atrial mesh */
+var SEGATRPH3 = 0.15;              /* phase three starts this early in the atrial action potential */
 var SEGATRAPD = 0.20;               /* seconds: the atrial action potential at 72 bpm */
 var SEGAPLAN = {};
-function emitAtrSeg(b, t, kind, sc, ps){
+function emitAtrSeg(b, t, kind, sc, ps, planIn){
   var M = MESH, NC = M.NC, NV = M.NV, i, src = M.AENTRY[kind];
-  var plan = SEGAPLAN[kind];
+  var plan = planIn || SEGAPLAN[kind];
   if (!plan){
     var T = segSolve([[src, 0]], {}), t0 = Infinity, t1 = 0, ra = [Infinity, 0], la = [Infinity, 0];
     for (i = NV; i < NC; i++){ var c = M.cells[i]; if (T[i] === Infinity) continue;
@@ -2687,10 +3069,12 @@ function emitAtrSeg(b, t, kind, sc, ps){
     plan = SEGAPLAN[kind] = { T:T, dur:t1, ra:ra, la:la };
   }
   var rr = b.rrA || 0.85, apd = SEGATRAPD*clamp(Math.sqrt(rr/0.85), 0.6, 1.25), gain = (sc === undefined ? 1 : sc)*ps;
+  if (planIn) apd = Math.min(apd, 0.8*planIn.dur/1000);     /* in a circuit the atrium recovers inside one lap */
   var P = new Array(NC), wz = new Float64Array(NC);
   for (i = 0; i < NC; i++){
     var reached = i >= NV && plan.T[i] !== Infinity;
-    P[i] = { ta:reached ? t + plan.T[i]/1000 : Infinity, rp:0, apd:apd, dome:0, notch:0, nrise:NOTCHRISE };
+    /* the atrial action potential has no long plateau: it is triangular, recovering almost from the start */
+    P[i] = { ta:reached ? t + plan.T[i]/1000 : Infinity, rp:0, apd:apd, dome:0, notch:0, nrise:NOTCHRISE, ph3:SEGATRPH3 };
     wz[i] = gain;
   }
   var SW = segWeights(null);
@@ -2701,10 +3085,10 @@ function emitAtrSeg(b, t, kind, sc, ps){
   b.arep = [b.pEnd + 0.02, b.pEnd + 0.18];
 }
 
-function emitSeg(b, t, mode, rr, sc){
+function emitSeg(b, t, mode, rr, sc, planIn, liveIn){
   var MOD = curMod(), M = MESH, NC = M.NC, i;
   var str = MOD.qrsStretch || 1;
-  var plan = segPlan(VPLANKEYS[mode], str);
+  var plan = planIn || segPlan(SEGKEYS[mode], str);
   var MEM = membrane(MOD), DZ = MOD.segdz || SEGDZ;
   /* segZones: a membrane change read by the mesh alone, as { wall:{ endo:, epi: } } action-potential factors */
   if (MOD.segZones){ MEM = JSON.parse(JSON.stringify(MEM)); for (var zk in MOD.segZones){ var zz = MOD.segZones[zk]; if (!MEM[zk]) continue; ['endo','epi'].forEach(function(L){ if (zz[L]) MEM[zk][L].apd *= zz[L]; }); } }
@@ -2715,10 +3099,10 @@ function emitSeg(b, t, mode, rr, sc){
   var P = new Array(NC), wz = new Float64Array(NC), apds = new Float64Array(NC), sum = 0, n = 0;
   for (i = 0; i < NC; i++){
     var c = M.cells[i];
-    if (c.atr){ P[i] = { ta:Infinity, rp:0, apd:0.2, dome:0, notch:0, nrise:NOTCHRISE }; apds[i] = 0.2; wz[i] = gain; continue; }   /* the atria have their own beat */
+    if (c.atr || !isFinite(plan.t[i])){ P[i] = { ta:Infinity, rp:0, apd:0.2, dome:0, notch:0, nrise:NOTCHRISE }; apds[i] = 0.2; wz[i] = gain; continue; }   /* the atria have their own beat */
     var mm = segMem(MEM[c.reg], c);
     var ta = plan.t[i];
-    var aq = Math.max(0.52*apd0, apd0 - SEGAPDSLOPE*(ta/1000)*rs);
+    var aq = Math.max(0.52*apd0, apd0 - (MOD.apdSlope !== undefined ? MOD.apdSlope : SEGAPDSLOPE)*(ta/1000)*rs);   /* apdSlope: a rhythm's own coupling of recovery to activation */
     var fac = segFac(c)*(1 - SEGREP.apex*(c.s - 0.5));
     var dome = 0, ap = aq*fac*(1 + DZ.apd*(mm.apd - 1));
     if (mm.dome > 0){
@@ -2730,6 +3114,15 @@ function emitSeg(b, t, mode, rr, sc){
     P[i] = { ta:t + ta/1000, rp:DZ.rp*mm.rp*RPK, apd:ap, dome:dome, ph3:MOD.segph3,
              notch:segNotch(c, MOD.notchFlat)*NOTCHSHOW*mm.notch,
              nrise:NOTCHRISE*mm.nrise };
+    /* the membrane's own shape, unless this rhythm rewrites the notch or the dome (Brugada, hypothermia) */
+    if (IONIC.on && !dome && mm.notch === 1 && !MOD.notchFlat) P[i].sh = ionShape(ionKind(c), (rr || 0.85)*1000, MOD.ionMod);
+  }
+  /* recovery as reaction-diffusion: the patches' durations become their membranes', coupled */
+  var RDW = null;
+  if (RD.on && !MOD.notchFlat && !(MOD.memb && MOD.memb.notch) && !(MOD.memb && MOD.memb.dome)){
+    var am = new Float64Array(M.NV); for (i = 0; i < M.NV; i++) am[i] = isFinite(P[i].ta) ? P[i].apd*1000 : 0;
+    RDW = rdBeat(plan, rr, MOD, am, UI.rhythm + '|' + mode);
+    for (i = 0; i < M.NV; i++) if (isFinite(P[i].ta)){ P[i].rw = RDW.wave; P[i].ri = i*RDW.L; P[i].rL = RDW.L; P[i].t0 = t; }
   }
   /* how loudly repolarisation reads: the spread of recovery, scaled */
   if (tAmp !== 1){ var mean = sum/n; for (i = 0; i < NC; i++) P[i].apd = mean + tAmp*(apds[i] - mean); }
@@ -2740,7 +3133,7 @@ function emitSeg(b, t, mode, rr, sc){
     if (P[i].ta + a > tEnd) tEnd = P[i].ta + a;
     if (P[i].ta + PH3*a < t3) t3 = P[i].ta + PH3*a;
   }
-  var SW = segWeights(MOD.zone);
+  var SW = liveIn ? segWeightsLive(liveIn) : segWeights(MOD.zone);
   var B = { tv:t, P:P, wz:wz, tEnd:tEnd, W:SW.W, DV:SW.DV };
   SEGBEATS.push(B);
 
@@ -2775,7 +3168,7 @@ function segVm(t, beats){
       if (t < P.ta) continue;
       _segSet[i] = 1;
       if (t > P.ta + P.apd + 0.05) continue;          /* long since back at rest */
-      _segV[i] = (vmLayer(P, t) - P.rp)*B.wz[i];
+      _segV[i] = (segVmCell(P, t) - P.rp)*B.wz[i];
       any = true;
     }
   }
@@ -2819,7 +3212,7 @@ function segAll(t, dip, leads){
 
 function emitQRS(b, t, mode, rr, sc, rot){
   /* segOff: a rhythm the mesh cannot yet draw faithfully keeps the region model */
-  if (SEGON && VPLANKEYS[mode] && !curMod().segOff) return emitSeg(b, t, mode, rr, sc);
+  if (SEGON && SEGKEYS[mode] && !curMod().segOff) return emitSeg(b, t, mode, rr, sc);
   var T = ventOf(mode), MOD = curMod();
   sc = (sc===undefined)?1:sc;
   var qs = MOD.qrsScale||1, str = MOD.qrsStretch||1;
@@ -3154,7 +3547,7 @@ var SINUSLIKE = {
   avb2to1:{avn:{erp:0.70, ahA:0.05, tau:0.10}, blockAt:'avn'},
   pvc:{ectopic:4}, bigem:{ectopic:1},
   rbbb:{mode:'rbbb'}, lbbb:{mode:'lbbb'}, lafb:{mode:'lafb'},
-  lpfb:{mode:'lpfb'}, bifasc:{mode:'bifasc'}, bifasc2:{mode:'bifasc2'}, wpw:{mode:'wpw', pr:0.10},
+  lpfb:{mode:'lpfb'}, bifasc:{mode:'bifasc'}, bifasc2:{mode:'bifasc2'}, wpw:{mode:'wpw', pr:0.11},
   paceA:{spike:'a'}, paceDDD:{mode:'pacedRV', spike:'av', pr:0.18},
   paceBiv:{mode:'pacedBiv', spike:'av', pr:0.16},
   stemiAnt:{}, stemiInf:{pr:0.18}, stemiRV:{pr:0.20}, stemiLat:{}, stemiPost:{}, nstemi:{},
@@ -3319,7 +3712,14 @@ function generate(horizon){
       if (ST.tA < horizon){
         didWork = true;
         b = newBeat('flutter');
-        emitP(b, ST.tA, 'flutter', 1);
+        /* on the mesh the flutter wave is the circuit itself */
+        var FP = (FLUT.on && SEGON && SEGATRIA && MESH && !curMod().segOff) ? flutterPlan() : null;
+        if (FP){
+          var ra = [Infinity, 0], la = [Infinity, 0];
+          for (var fi = MESH.NV; fi < MESH.NC; fi++){ var fv = FP.T[fi]; if (!isFinite(fv)) continue; var fw = MESH.cells[fi].side === 'ra' ? ra : la; if (fv < fw[0]) fw[0] = fv; if (fv > fw[1]) fw[1] = fv; }
+          emitAtrSeg(b, ST.tA, 'flutter', 1, 1, { T:FP.T, dur:FP.CL, ra:ra, la:la });
+          b.pKind = 'flutter';
+        } else emitP(b, ST.tA, 'flutter', 1);
         /* the conduction ratio is not chosen: at 300 per minute the node
            simply cannot take every circuit, and what gets through is
            whatever its refractory period allows */
@@ -3327,7 +3727,7 @@ function generate(horizon){
         ST.n++;
         /* one lap of the atrial circuit */
         if (ST.circ) ST.circ.head = ST.tA;
-        ST.tA += (ST.circ && ST.circ.on) ? ST.circ.L : 0.20;
+        ST.tA += FP ? FP.CL/1000 : ((ST.circ && ST.circ.on) ? ST.circ.L : 0.20);
       }
     }
 
@@ -3446,9 +3846,11 @@ function generate(horizon){
       if (ST.tV < horizon){
         didWork = true;
         b = newBeat(id);
-        emitQRS(b, ST.tV, 'vtLV', rr);
-        ST.lastV = ST.tV; ST.lastRR = rr;
-        ST.tV += rr;
+        /* VT on the mesh is a circuit round a scar: its rate is however long a lap takes */
+        var lap = (id === 'vt' && SEGON && MESH && !curMod().segOff) ? emitReentry(b, ST.tV, rr) : null;
+        if (!lap){ emitQRS(b, ST.tV, 'vtLV', rr); lap = rr; }
+        ST.lastV = ST.tV; ST.lastRR = lap;
+        ST.tV += lap;
       }
       if (ST.tA < horizon){
         didWork = true;
@@ -5563,9 +5965,16 @@ function openRhythmInfo(id){
    CHANGELOG
    Newest first. Kept in the file so the tool carries its own history.
 ===================================================================== */
-var APPVER = '2.0.10';
+var APPVER = '2.0.13';
 var CHANGELOG = [
- { v:'2.0.10', d:'20 Oct 2026', t:'The heart is now a three-dimensional mesh, and you can watch it; P waves the right size', li:[
+ { v:'2.0.13', d:'21 Oct 2026', t:'WPW is drawn by the 3D heart; a truer LAFB', li:[
+   '<b>WPW pre-excitation now comes from the mesh.</b> A Kent bundle crosses onto the base of the left lateral wall 30 ms before the His bundle fires. From there the wave creeps through muscle alone, giving the delta wave, until the normal Purkinje wave arrives and the two fuse. Against PTB-XL WPW ECGs not used for fitting, 85 of 90 measurements now fall in range (70 before), lifting the held-out score from 95.2% to 95.9%.',
+   '<b>LAFB: the cut fascicle fills late.</b> With the anterior fascicle blocked, its Purkinje network is now refilled only through thin peripheral links (0.7 of the speed), so the anterosuperior wall really does activate last. That gives the late superior forces: deeper S in II and the lateral chest leads. PTB-XL LAFB 86 of 91 in range (82 before), QRS 116 ms. With the anterior fascicle cut, the posterior one now also fires 3 ms earlier, which removes the too-deep Q in aVL and V6: LAFB 87 of 91.',
+   '<b>AVNRT at a typical rate.</b> It now runs at 150 bpm, the middle of PTB-XL SVT recordings, instead of 186. At 186 the long QT ran each T wave into the next QRS. AVNRT 89 of 90 in range (78 before).',
+   '<b>WPW P wave is back.</b> The PR is now 110 ms, still short but long enough for the P wave to end as the delta wave begins; at 100 ms the two overlapped and the P could not be measured. WPW now matches PTB-XL on all 91 measurements.' ] },
+ { v:'2.0.12', d:'20 Oct 2026', t:'The heart is now a three-dimensional mesh, and you can watch it; P waves the right size', li:[
+   '<b>New in 2.0.12: ventricular tachycardia is a real circuit.</b> Monomorphic VT is no longer a stored shape repeated at a set rate. The mesh carries a healed inferolateral infarct: a scar through the whole wall with one channel of surviving, slowly conducting muscle threaded through it. The tachycardia starts with the wave entering that channel while the muscle beyond its entrance is still refractory, so it can only go one way &mdash; down the channel, out of its far end, round both sides of the scar and back in. Its rate is however long one lap takes (343&nbsp;ms, 175 per minute); its QRS (150&nbsp;ms, axis &minus;92&deg;, positive in V1 to V3) comes from where the channel lets the wave out, low on the inferior wall; the sinus P waves march through it, dissociated. Watch it in the <i>Mesh</i> view.',
+   '<b>Fixed in 2.0.11:</b> the frontal QRS axis of sinus rhythm read too far left (&minus;23&deg;, and &minus;47&deg; in sinus tachycardia). The atria were recovering with a ventricular-shaped action potential &mdash; a long plateau, then all at once &mdash; so their repolarisation wave was large and still running under the QRS. The atrial action potential is triangular and recovers from the start; with that shape the atrial T wave is small and spread out, as it is in life, and the axis is +13&deg; in sinus rhythm. Sinus tachycardia now starts at 110&nbsp;bpm, the middle of real sinus tachycardia; the rate control still takes it higher. Against the PTB-XL ECGs the model was not fitted to: 95.2% of measurements in range (sinus tachycardia 100%).',
    '<b>New in 2.0.10: see the mesh itself.</b> The heart panel has a fourth view, <i>Mesh</i>: every patch of the outer wall of both ventricles and both atria, in its place in the chest with V1 to V6 beside it, each coloured by what its own membrane is doing at that moment &mdash; the wavefront passing, the plateau, recovery, rest. It runs in step with the tracing; drag it to turn it and look from the side or from below. Every panel now opens by default; one you close stays closed.',
    '<b>New in 2.0.9: the ventricles and atria are built as a mesh.</b> The heart is no longer six walls with fixed vectors. It is about 1,100 patches in its real shape and place in the chest &mdash; a D-shaped left ventricle with a thicker lateral wall, a right ventricle wrapped over the septum with its outflow tract, four layers through each wall with the muscle fibres turning through them, and two thin atria above and behind. The wave enters where the conduction system lets it out (the left septal fibres, the two fascicles at their papillary muscles, the right bundle through the moderator band, the sinus node) and spreads from there; every ECG is the voltage difference between touching patches, read by each electrode from where it actually sits.',
    'Judged on half of the PTB-XL ECGs that were never used to tune it, the share of measurements inside the range of real ECGs rises from 94.0% to 94.8%. Normal sinus rhythm 99%; LVH 99% (from 86%); RBBB 100%; NSTEMI 100%; LBBB 88% (from 84%). The fascicular blocks now arise from the anatomy: LAFB −52&deg; with a QRS of 107&nbsp;ms, LPFB +107&deg;. The P wave, its axis and its shape for every atrial origin come from the atrial mesh: sinus upright in II with a biphasic V1, left atrial rhythm negative in I and aVL, low atrial and retrograde inverted in II and aVF, and the small atrial repolarisation wave after it.',
