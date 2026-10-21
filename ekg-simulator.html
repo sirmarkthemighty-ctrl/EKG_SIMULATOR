@@ -124,6 +124,10 @@ a{color:var(--acc)}
   color:var(--ink-2);font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;
   text-transform:uppercase;padding:7px 11px;font-weight:500;cursor:pointer;white-space:nowrap}
 .logbtn:hover{color:var(--acc);border-color:var(--acc-line);background:var(--acc-wash)}
+.acc-t{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}
+.acc-t th,.acc-t td{text-align:left;padding:6px 6px;border-top:1px solid var(--rule);vertical-align:top}
+.acc-t th{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);border-top:0}
+.acc-t .acc-n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 .cl-entry{border-top:1px solid var(--rule);padding-top:11px;margin-top:13px}
 .cl-entry:first-child{border-top:0;padding-top:0;margin-top:0}
 .cl-h{display:flex;align-items:baseline;gap:9px;margin-bottom:5px;flex-wrap:wrap}
@@ -293,6 +297,8 @@ kbd{font-family:var(--mono);font-size:10px;background:var(--surface-2);border:1p
 #body{width:100%;max-width:580px;height:auto;display:block}
 #meshcv{width:100%;max-width:580px;height:auto;display:block;touch-action:none;cursor:grab;border-radius:10px}
 #meshcv:active{cursor:grabbing}
+.meshseg{max-width:320px;margin:8px auto 0}
+.meshseg button{white-space:nowrap}
 #body text{font-family:var(--mono)}
 .elab{font-size:9px;font-weight:600;fill:var(--acc)}
 .enote{font-size:8.3px;fill:var(--ink-3)}
@@ -495,6 +501,7 @@ footer{font-size:12px;color:var(--ink-3);border-top:1px solid var(--rule);paddin
       <p class="by">Made by Warodom Phaenthong, M.D. <span id="verTag"></span></p>
     </div>
     <div class="mast-side">
+      <button type="button" class="logbtn" id="accBtn">Accuracy</button>
       <button type="button" class="logbtn" id="logBtn">What&rsquo;s new</button>
       <div class="themeswitch" role="group" aria-label="Colour theme">
         <button type="button" data-theme-set="auto">Auto</button>
@@ -767,6 +774,10 @@ footer{font-size:12px;color:var(--ink-3);border-top:1px solid var(--rule);paddin
             <!-- the same dipole, seen from outside: where each electrode
                  actually sits and what it therefore looks along -->
             <canvas id="meshcv" width="860" height="760" role="img" aria-label="The three-dimensional mesh the tracing is computed from, each patch coloured by its state; drag to turn" hidden></canvas>
+            <div class="seg meshseg" id="meshSeg" role="group" aria-label="How to show the mesh" hidden>
+              <button type="button" data-mm="surface" class="on">Surface</button>
+              <button type="button" data-mm="slice">Cross-section</button>
+            </div>
             <svg id="body" viewBox="0 0 430 470" role="img" aria-label="Body with ECG electrodes in their anatomical positions and a cross-section of the chest" hidden>
               <defs>
                 <marker id="bvhead" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="4.4" markerHeight="4.4" orient="auto-start-reverse">
@@ -1223,8 +1234,10 @@ function membrane(MOD){
    layer now rests. Nothing here is an ECG waveform. The waveform is what
    two of these differ by. */
 /* how far the plateau falls before phase three, as a share of its height: real plateaus are not flat */
-var PSAG = 0.4;      /* chosen on the PTB-XL fitting half: 97.15% flat, 97.45% at 0.4 (ties 0.5) */
-var PH3 = 0.579;         /* of the action potential gone before phase three starts */
+/* phase zero, in s: one patch stands for thousands of cells firing over a few ms, so its upstroke is spread */
+var PUP = 0.0055;
+var PSAG = 0.4128;   /* refitted 22 Oct 2026 with whole-beat shape (mesh-tools/fits cmaShape2); first chosen at 0.4 on the PTB-XL fitting half */
+var PH3 = 0.4732;        /* of the action potential gone before phase three starts (0.579 before the 22 Oct shape refit) */
 function vmPh3(P){
   var dome = P.dome || 0;
   return P.ta + PH3 * P.apd * (0.26 + 0.74*(1-dome));
@@ -1235,7 +1248,7 @@ function vmLayer(P, t){
   var dome = P.dome || 0, nd = clamp(P.notch || 0, 0, 0.92);
   var pk = 1 - dome;                            /* the plateau, or its loss */
   var a  = P.apd * (0.26 + 0.74*(1-dome));      /* losing it shortens the beat */
-  var t0 = 0.0055;                              /* phase zero */
+  var t0 = PUP;                                 /* phase zero */
   var t1 = t0 + 0.018;                          /* the phase one notch */
   var t2 = Math.max(t1 + 0.004, (P.ph3 || PH3)*a);   /* the plateau; a fast phase three (high potassium) starts it later */
   if (u < t0) return r + (1-r)*(u/t0);
@@ -1920,11 +1933,12 @@ var RHYTHMS = [
   desc:'A normal variant, commonest in young men and in athletes. The J point lifts with a notch or slur on the down stroke of the R wave, the elevated ST segment stays concave upward, and the T waves are tall and asymmetric.',
   pearl:'Concave ST, a notched J point, no reciprocal depression anywhere, and the ratio of ST elevation to T wave height staying small. It is stable over years &mdash; an old tracing settles it faster than any rule.',
   feat:{ P:'Upright, uniform', PR:'160 ms', reg:'Regular' },
-  mod:{ injZones:{ lvlat:{ notch:{ epi:16 }, nrise:{ epi:1.7 }, apd:{ epi:0.88 } },
-                   lvinf:{ notch:{ epi:15.3 }, nrise:{ epi:1.7 }, apd:{ epi:0.88 } },
-                   lvant:{ notch:{ epi:13.3 }, nrise:{ epi:1.6 }, apd:{ epi:0.87 } },
+  /* notch sizes x0.6 (22 Oct 2026): real early repolarisation (Challenge 2021, 150 ECGs) has lateral J/ST of about 0.05-0.1 mV, not 0.3 */
+  mod:{ injZones:{ lvlat:{ notch:{ epi:9.6 }, nrise:{ epi:1.7 }, apd:{ epi:0.88 } },
+                   lvinf:{ notch:{ epi:9.18 }, nrise:{ epi:1.7 }, apd:{ epi:0.88 } },
+                   lvant:{ notch:{ epi:7.98 }, nrise:{ epi:1.6 }, apd:{ epi:0.87 } },
                    rv:   { apd:{ epi:0.88 } },
-                   sept: { notch:{ epi:9.3 }, nrise:{ epi:1.4 }, apd:{ epi:0.87 } } }, tAmp:1.15 } },
+                   sept: { notch:{ epi:5.58 }, nrise:{ epi:1.4 }, apd:{ epi:0.87 } } }, tAmp:1.15 } },
 
 { id:'pericarditis', g:'mimic', label:'Acute pericarditis', rate:98, rateTxt:'Often fast', tone:'warn',
   origin:'Diffuse epicardial inflammation',
@@ -2124,12 +2138,13 @@ var SEGK = 0.0611;            /* dipole per unit voltage difference per cm^2 of 
 var SEGDZ = { apd:1.0, rp:1.0, st:1.0 };
 var SEGDEADRET = 3.8762;        /* how much harder muscle finds it to enter a network whose bundle is cut */
 var SEGARR = { lbb:-0.2544, laf:3.3278, lpf:1.3887, rbb:19.2443 };   /* ms from QRS onset to each branch's exit */
-var SEGAPDSLOPE = 0.1349;      /* each ms later activated, this many ms shorter */
-var SEGAPDK = 0.9728;          /* the first patch's action potential, against the region model's */
+var SEGAPDSLOPE = 0.2453;      /* each ms later activated, this many ms shorter */
+var SEGAPDK = 0.9800;          /* the first patch's action potential, against the region model's */
 /* each layer's action potential, as a fraction of the first one reached:
    the inner layers (and the right ventricle's face of the septum) last
    longer than the outer ones, and the apex less long than the base */
-var SEGREP = { endo:{ lv:0.9601, rv:1.0127 }, rvs:1.0933, epi:{ rv:0.8723, lvant:0.8541, lvlat:0.9533, lvinf:0.9464, lvpost:0.8194 }, apex:0.1667, m:0.075 };
+/* refitted 22 Oct 2026 against PTB-XL measurements plus whole-beat shape (ST-T correlation with real median beats) */
+var SEGREP = { endo:{ lv:0.9891, rv:0.9860 }, rvs:0.9544, epi:{ rv:1.0085, lvant:0.9340, lvlat:1.0153, lvinf:1.0020, lvpost:0.9152 }, apex:0.1944, m:0.1414 };
 var SEGBEATS = [];
 
 /* The anatomy the mesh is built from, set from anatomy rather than fitted.
@@ -2447,7 +2462,7 @@ function buildMesh(){ MESH = (function(){
   cells.forEach(function(c){
     if (c.reg === 'sept' && c.side === 'lv' && c.mem === 'endo'){ if (c.s >= 0.15) addPurk(c.k, 'L', 'S'); }
     else if (c.side === 'lv' && c.mem === 'endo' && c.s >= Q.lvPurk)
-      addPurk(c.k, 'L', c.reg === 'lvant' || c.reg === 'lvlat' ? 'A' : 'P');
+      addPurk(c.k, 'L', ((c.reg === 'lvant' && c.s < (Q.aApex === undefined ? 9 : Q.aApex)) || (c.reg === 'lvlat' && c.s < (Q.aLat === undefined ? 9 : Q.aLat))) ? 'A' : 'P');   /* the anterior fascicle's fan: the anterior wall, and the lateral wall down to aLat */
     else if ((c.side === 'rv' && c.mem === 'endo' && c.s >= Q.rvPurk) || (c.side === 'rvs' && c.s >= Q.rvsPurk)) addPurk(c.k, 'R', 'R');
   });
   purk.forEach(function(pn){
@@ -5103,15 +5118,16 @@ function markBodyLead(){
    the plateau, recovering. Drag to turn it; the chest electrodes V1 to
    V6 sit where the tracing reads them from.
 ===================================================================== */
-var MV = { yaw:0, pitch:0, list:null, mesh:null };
+var MV = { yaw:0, pitch:0, list:null, mesh:null, mode:'surface' };   /* mode slice: a short-axis cut, every wall layer */
 function meshList(){
-  if (MV.mesh === MESH && MV.list) return MV.list;
+  if (MV.mesh === MESH && MV.list && MV.listMode === MV.mode) return MV.list;
   var out = [];
   MESH.cells.forEach(function(c, i){
     if (c.pm) return;                                          /* papillary muscles sit inside */
+    if (MV.mode === 'slice'){ if (!c.atr && c.s >= 0.40 && c.s < 0.56) out.push(i); return; }   /* a band across the middle of the ventricles, all layers */
     if (c.atr || c.lay === (c.nl || 2) - 1) out.push(i);       /* the outer layer, and the atria */
   });
-  MV.list = out; MV.mesh = MESH;
+  MV.list = out; MV.mesh = MESH; MV.listMode = MV.mode;
   return out;
 }
 /* 0 resting, 1 wavefront, 2 plateau, 3 recovering */
@@ -5129,6 +5145,8 @@ function meshState(i, t){
   return 0;
 }
 function meshProj(p){
+  /* cross-section: look down the heart's own long axis, base to apex */
+  if (MV.mode === 'slice' && MESH){ var M = MESH; p = [p[0]*M.e1[0] + p[1]*M.e1[1] + p[2]*M.e1[2], p[0]*M.e2[0] + p[1]*M.e2[1] + p[2]*M.e2[2], p[0]*M.u[0] + p[1]*M.u[1] + p[2]*M.u[2]]; }
   var a = MV.yaw*D2R, b = MV.pitch*D2R;
   var x1 = p[0]*Math.cos(a) + p[2]*Math.sin(a), z1 = -p[0]*Math.sin(a) + p[2]*Math.cos(a);
   return [x1, p[1]*Math.cos(b) - z1*Math.sin(b), p[1]*Math.sin(b) + z1*Math.cos(b)];
@@ -5143,7 +5161,7 @@ function paintMesh(t){
   }
   var COL = [P['myo'], P['depol'], P['plateau'], P['repol']];
   var pts = meshList().map(function(i){ var c = MESH.cells[i], q = meshProj(c.pos); return [q, i, c]; });
-  LEADS.forEach(function(L){ if (L.pos && /^V[1-6]$/.test(L.n)) pts.push([meshProj(L.pos), -1, L]); });
+  if (MV.mode !== 'slice') LEADS.forEach(function(L){ if (L.pos && /^V[1-6]$/.test(L.n)) pts.push([meshProj(L.pos), -1, L]); });
   /* fit whatever the angle: the heart and the electrodes, with room for labels */
   var x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
   pts.forEach(function(e){ var q = e[0]; if (q[0] < x0) x0 = q[0]; if (q[0] > x1) x1 = q[0]; if (q[1] < y0) y0 = q[1]; if (q[1] > y1) y1 = q[1]; });
@@ -5155,11 +5173,15 @@ function paintMesh(t){
       g.fillStyle = P['ink']; g.fillRect(X - 6, Y - 6, 12, 12);
       g.font = 'bold 20px system-ui, sans-serif'; g.textAlign = 'left'; g.fillText(e[2].n, X + 9, Y - 7); return;
     }
-    var st = meshState(e[1], t), r = Math.max(4, 11 - q[2]*0.35) * (e[2].atr ? 0.8 : 1);
+    var st = meshState(e[1], t), r = MV.mode === 'slice' ? 9 : Math.max(4, 11 - q[2]*0.35) * (e[2].atr ? 0.8 : 1);
     g.beginPath(); g.arc(X, Y, r, 0, 6.2832);
     g.fillStyle = COL[st]; g.globalAlpha = st ? 1 : 0.85; g.fill(); g.globalAlpha = 1;
     g.lineWidth = 1; g.strokeStyle = P['myo-line']; g.stroke();
   });
+  if (MV.mode === 'slice'){
+    g.fillStyle = P['ink-2']; g.font = '20px system-ui, sans-serif'; g.textAlign = 'center';
+    g.fillText('Mid-ventricle, seen from the base: inner ring endocardium, outer ring epicardium', W/2, 30);
+  }
   if (curMod().segOff){
     g.fillStyle = P['ink-2']; g.font = '20px system-ui, sans-serif'; g.textAlign = 'center';
     g.fillText('This rhythm is still drawn by the previous engine; its ventricles here stay at rest.', W/2, H - 18);
@@ -5214,6 +5236,7 @@ function setHeartView(v){
   show('heart', wantHeart);
   show('body',  wantBody);
   show('meshcv', v==='mesh');
+  show('meshSeg', v==='mesh');
   $('hbBody').classList.toggle('dual', v==='both');
   $('stageTitle').textContent = (v==='mesh') ? 'The heart as a mesh — drag to turn'
                               : (v==='both') ? 'Heart and electrodes'
@@ -5967,9 +5990,16 @@ function openRhythmInfo(id){
    CHANGELOG
    Newest first. Kept in the file so the tool carries its own history.
 ===================================================================== */
-var APPVER = '2.0.15';
+var APPVER = '2.0.19';
 var CHANGELOG = [
- { v:'2.0.15', d:'21 Oct 2026', t:'WPW is drawn by the 3D heart; a truer LAFB; plateaus that sag; LBBB starts on the septum', li:[
+ { v:'2.0.19', d:'22 Oct 2026', t:'Checked against 1,200 more real ECGs; gentler early repolarisation; see through the wall; truer T-wave shapes', li:[
+   '<b>T waves shaped like real ones.</b> Recovery was refitted against the whole shape of real beats as well as their measurements: each rhythm&rsquo;s simulated beat is compared, lead by lead, with the median of real PTB-XL beats. On ECGs never used for fitting, the ST-T shape agreement rose from 0.49 to 0.58 (correlation, average of 11 rhythms): AF, LVH, LBBB, LAFB, WPW and NSR most of all. The measurement score is unchanged at 97.1%. The normal V1 T is now small but upright, as in most real normal ECGs.',
+   '<b>Cross-section view.</b> Under the 3D mesh, switch from Surface to Cross-section to slice the ventricles across the middle and look down from the base. Every wall layer shows: four through the left ventricle, endocardium inside and epicardium outside, and two through the right. Watch the wave cross the wall from inside out, and recovery return the other way, which is why the T wave is upright.',
+   '<b>Rhythms PTB-XL lacks are now checked.</b> 1,274 recordings from the PhysioNet/CinC Challenge 2021 (Ningbo, Chapman-Shaoxing, Georgia), measured with our own wave measurer (checked against 12SL on PTB-XL), now give reference ranges for early repolarisation, atrial tachycardia, atrial and ventricular pacing, PVCs, junctional rhythm, VT, second- and third-degree AV block and Mobitz I. About 98% of the simulator&rsquo;s measurements fall inside them (P amplitude and PR not yet scored).',
+   '<b>Early repolarisation is gentler.</b> The J-point notch was three to five times larger than in real recordings (lateral ST about 0.3 mV against 0.05&ndash;0.1). It is now 40% smaller: chosen on half of 150 real ECGs and confirmed on the other half (90% to 96% of measurements in range), while still showing the classic lateral notch and ST lift.',
+   '<b>AVRT has no reference yet.</b> Only 9 of the recordings labelled AVRT were taken during the tachycardia; the rest were in sinus rhythm, so they cannot judge an AVRT tracing.' ] },
+ { v:'2.0.16', d:'21 Oct 2026', t:'WPW is drawn by the 3D heart; a truer LAFB; plateaus that sag; LBBB starts on the septum; an Accuracy page', li:[
+   '<b>New Accuracy button.</b> Beside What&rsquo;s new: how closely the simulator matches real ECGs (97.1% of PTB-XL measurements in range, on ECGs it was never fitted to), how that is measured, the score for each group of rhythms, and the known limits.',
    '<b>The right bundle now lines the septum.</b> Its Purkinje fibres used to reach the septum&rsquo;s right face only near the apex, so in LBBB the RV free wall fired first and the QRS began pointing right, with Q waves in I and V6 that real LBBB does not have. The fibres now cover the right septal face, so LBBB begins right to left across the septum: no Q in I or V6, and a Q in aVR. The right-bundle timing and conduction speeds were refitted on the PTB-XL fitting half around this; the held-out score stays at 97.1%.',
    '<b>Every cell&rsquo;s plateau now sags.</b> A real action potential does not hold flat in phase 2; it drifts down as the outward currents build. Each patch now loses 40% of its plateau height before phase 3, a value chosen against the PTB-XL fitting half (flat 97.15%, sagging 97.45%). This is what gives LBBB its discordant ST elevation in V1&ndash;V3, and it helps NSTEMI, old MI and LVH. Held-out score 97.1%.',
    '<b>Re-checked honestly.</b> Every setting changed today was re-chosen using only the fitting half of PTB-XL, then the held-out half was scored once. One change was not supported and was removed (firing the posterior fascicle earlier in LAFB).',
@@ -6107,6 +6137,35 @@ var CHANGELOG = [
    'Animated four-chamber heart, Lewis ladder diagram, live measurements and a frontal-plane vector loop.' ]}
 ];
 
+/* How well the simulator matches real ECGs: PTB-XL held-out scores for v2.0.19 (.claude/ptbxl-score.js --seg --half test),
+   and Challenge 2021 groups measured with .claude/wave-measure.js (.claude/c21-score.js) */
+var ACCURACY = { ver:'2.0.19', pct:97.1, ok:1941, n:1998, c21:{ ok:771, n:780, rhythms:10 }, groups:[
+  ['Sinus rhythms (normal, slow, fast, arrhythmia)', 362, 364],
+  ['AV block, first degree', 90, 91],
+  ['Bundle branch blocks (RBBB, LBBB)', 173, 182],
+  ['Fascicular and bifascicular blocks', 339, 364],
+  ['WPW pre-excitation', 90, 91],
+  ['Supraventricular (AVNRT, flutter, AF)', 264, 270],
+  ['Infarction and ischaemia (STEMI, NSTEMI, old MI)', 358, 364],
+  ['LVH, long QT, ventricular pacing', 265, 272] ] };
+function openAccuracy(){
+  var A = ACCURACY, rows = A.groups.map(function(g){ var p = 100*g[1]/g[2];
+    return '<tr><td>' + g[0] + '</td><td class="acc-n">' + g[1] + ' / ' + g[2] + '</td><td class="acc-n">' + p.toFixed(0) + '%</td></tr>'; }).join('');
+  var html = '<p class="m-eyebrow">Validation</p><h2>How close to real ECGs?</h2>' +
+    '<p class="m-sub">' + A.pct.toFixed(1) + '% of measurements fall in the range of real recordings (' + A.ok + ' of ' + A.n + ', v' + A.ver + ')</p>' +
+    '<p>Each rhythm with a matching group in <b>PTB-XL</b> (21,799 clinical 12-lead ECGs) is measured the way the GE 12SL program measured those ECGs: P, Q, R, S, R&prime;, ST and T in every lead, plus rate, PR, QRS, QT and axes. A measurement counts as a match when it falls between the 5th and 95th percentile of the real group.</p>' +
+    '<p>Settings are tuned on half of PTB-XL (even ECG numbers) and scored once on the other half, so the score is on ECGs the simulator was never fitted to.</p>' +
+    '<table class="acc-t"><tr><th>Rhythm group</th><th class="acc-n">In range</th><th class="acc-n"></th></tr>' + rows + '</table>' +
+    '<p style="margin-top:12px"><b>Rhythms PTB-XL lacks.</b> ' + A.c21.rhythms + ' more rhythms (early repolarisation, atrial tachycardia, atrial and ventricular pacing, PVCs, junctional, VT, second- and third-degree AV block, Mobitz I) are checked against 1,274 recordings from the PhysioNet/CinC Challenge 2021, measured by this project&rsquo;s own wave measurer (checked against 12SL on PTB-XL): ' + A.c21.ok + ' of ' + A.c21.n + ' measurements in range (' + (100*A.c21.ok/A.c21.n).toFixed(1) + '%). P amplitude and PR are not yet scored there.</p>' +
+    '<p><b>Whole-beat shape.</b> Each rhythm&rsquo;s simulated beat is also compared, lead by lead, with the median of real PTB-XL beats: on held-out ECGs the ST-T shape correlation averages 0.58 across 11 rhythms (1 would be identical).</p>' +
+    '<p class="m-eyebrow" style="margin-top:14px">Known limits</p><ul>' +
+    '<li><b>28 rhythms have no real reference yet</b> (VF, AVRT, AIVR, Mobitz II, torsades, Brugada, hyperkalaemia, pericarditis, PE, Wellens, RV and posterior MI, hypothermia and others). They are drawn from physiology but not yet checked against real recordings.</li>' +
+    '<li><b>LAFB axis</b> is about &minus;20&deg;, short of the &minus;45&deg; that defines LAFB clinically, though its measurements still fall within PTB-XL ranges.</li>' +
+    '<li><b>LBBB</b> shows a small notch in V1 and V4; notched LBBB complexes do occur, but this one comes from the model.</li>' +
+    '<li>QRS shape agreement is weakest in the fascicular and bundle branch blocks (correlation 0.25&ndash;0.50).</li>' +
+    '<li>The simulator shows one typical patient per rhythm; real ECGs vary from person to person.</li></ul>';
+  openModal(html, 'var(--acc)');
+}
 function openChangelog(){
   var html = '<p class="m-eyebrow">Version history</p><h2>What&rsquo;s new</h2>' +
     '<p class="m-sub">Version ' + APPVER + ' &middot; ' + CHANGELOG.length +
@@ -6329,6 +6388,12 @@ function wireControls(){
   $('modeSeg').addEventListener('click', function(e){
     var b = e.target.closest('button'); if (b) setMode(b.getAttribute('data-mode'));
   });
+  $('meshSeg').addEventListener('click', function(e){
+    var b = e.target.closest('button[data-mm]'); if (!b) return;
+    MV.mode = b.getAttribute('data-mm'); MV.yaw = 0; MV.pitch = 0;
+    [].forEach.call($('meshSeg').children, function(x){ x.classList.toggle('on', x === b); });
+    dirty = true;
+  });
   $('hvSeg').addEventListener('click', function(e){
     var b = e.target.closest('button'); if (b) setHeartView(b.getAttribute('data-hv'));
   });
@@ -6340,6 +6405,7 @@ function wireControls(){
 
   $('verTag').textContent = '· v' + APPVER;
   $('logBtn').addEventListener('click', openChangelog);
+  $('accBtn').addEventListener('click', openAccuracy);
   $('modalX').addEventListener('click', closeModal);
   $('modalBack').addEventListener('click', closeModal);
   $('modalBody').addEventListener('click', function(e){
