@@ -2129,15 +2129,16 @@ function rotv(v,deg){
    (.claude/ptbxl-score.js --seg --half test); a rhythm it cannot yet draw faithfully sets segOff and keeps the region model */
 var SEGON = true;
 /* fitted to the normal 12-lead QRS of PTB-XL (.claude/ptbxl-score.js --seg) */
-var SEGV = { atr:0.120, bach:0.200, myo:0.0753, cross:0.0209, trans:0.0533, purk:0.2382, pmj:7.8829, ret:5.9823, xdiv:0.08 };   /* along fibres, across them, across the wall */  /* cm/ms; ms */
+var SEGV = { atr:0.120, bach:0.200, myo:0.0933, cross:0.0209, trans:0.0491, purk:0.2306, pmj:7.8829, ret:5.9823, xdiv:0.2521 };   /* along fibres, across them, across the wall */  /* cm/ms; ms */
 var SEGK = 0.0611;            /* dipole per unit voltage difference per cm^2 of boundary */
 /* A rhythm states its membrane changes once, for both engines. The
    region model reads a wall as a whole and needs them large; the mesh
    reads every boundary, so it takes them at this fraction of their size -
    one for all, unless a rhythm was fitted to its own PTB-XL group (segdz). */
 var SEGDZ = { apd:1.0, rp:1.0, st:1.0 };
-var SEGDEADRET = 3.8762;        /* how much harder muscle finds it to enter a network whose bundle is cut */
-var SEGARR = { lbb:-0.2544, laf:3.3278, lpf:1.3887, rbb:19.2443 };   /* ms from QRS onset to each branch's exit */
+var SEGDEADRET = 3.5042;        /* how much harder muscle finds it to enter a network whose bundle is cut */
+/* conduction refitted 27 Oct 2026 on the 1.5x mesh against PTB-XL measurements plus whole-beat QRS shape (mesh-tools/fits cmaRes15b) */
+var SEGARR = { lbb:1.4095, laf:1.0708, lpf:3.5474, rbb:17.5058 };   /* ms from QRS onset to each branch's exit */
 var SEGAPDSLOPE = 0.2453;      /* each ms later activated, this many ms shorter */
 var SEGAPDK = 0.9800;          /* the first patch's action potential, against the region model's */
 /* each layer's action potential, as a fraction of the first one reached:
@@ -2154,7 +2155,7 @@ var SEGBEATS = [];
    the plane seen edge-on in the left anterior oblique view at lao degrees,
    facing the right ventricle forward and to the right; roll can turn it
    about the long axis but anatomy says it need not. */
-var MESHP = { atrK:1.4, pap:0, lung:0, rLat:0.3983, hLat:0.2948, ot:0.0987, rc:1.0047, ox:-0.9866, oy:0.6126, oz:0.7795, nl:4, nlr:2, helix:57.6764, af:39.9868, tilt:43.1679, roll:8.5207, lao:47.2146, L:6.5962, R:2.6508, H:0.905, HS:0.9149, HRV:0.255, BRV:0.9493, lvPurk:0.087, rvPurk:0.1103, rvsPurk:0.1151, tan:0.95 };
+var MESHP = { resA:1.5, resL:1.5, atrK:1.4, pap:0, lung:0, rLat:0.3983, hLat:0.2948, ot:0.0987, rc:1.0047, ox:-0.9866, oy:0.6126, oz:0.7795, nl:4, nlr:2, helix:57.6764, af:39.9868, tilt:43.1679, roll:8.5207, lao:47.2146, L:6.5962, R:2.6508, H:0.905, HS:0.9149, HRV:0.255, BRV:0.9493, lvPurk:0.1360, rvPurk:0.0530, rvsPurk:0.0981, tan:0.95 };
 var MESH = null;
 function buildMesh(){ MESH = (function(){
   var Q = MESHP, ca = Math.cos(Q.af*D2R), sa = Math.sin(Q.af*D2R), ct = Math.cos(Q.tilt*D2R), st = Math.sin(Q.tilt*D2R);
@@ -2171,7 +2172,9 @@ function buildMesh(){ MESH = (function(){
   e1 = nrm([cr*e1[0]+sr*ux[0], cr*e1[1]+sr*ux[1], cr*e1[2]+sr*ux[2]]);
   var e2 = [u[1]*e1[2]-u[2]*e1[1], u[2]*e1[0]-u[0]*e1[2], u[0]*e1[1]-u[1]*e1[0]];
   var L = Q.L, R = Q.R, H = Q.H, HS = Q.HS, HRV = Q.HRV, BRV = Q.BRV;
-  var NS = 11, NP = 18, NSR = 9, NPR = 7, SEPT = 62*D2R, SMAX = 0.97, SRV = 0.82;
+  /* resolution: resA multiplies the patches around, resL the rows from base to apex (1 = the original 18 x 11 grid) */
+  var RA = Q.resA || 1, RL = Q.resL || 1;
+  var NS = Math.round(11*RL), NP = Math.round(18*RA), NSR = Math.round(9*RL), NPR = Math.round(7*RA), SEPT = 62*D2R, SMAX = 0.97, SRV = 0.82;
   /* where the heart sits in the chest: ox, oy, oz move it (cm; left, down, back) */
   var base = [-u[0]*L*0.42 + (Q.ox || 0), -u[1]*L*0.42 + (Q.oy || 0), -u[2]*L*0.42 + (Q.oz || 0)];
   function radial(phi){ var c = Math.cos(phi), s = Math.sin(phi);
@@ -2766,8 +2769,9 @@ function rvsEntry(){
   for (var i = 0; i < M.NC; i++){ var c = M.cells[i]; if (c.side !== 'rvs') continue; var d = Math.abs(c.s - SEGLBBB.s); if (d < bd){ bd = d; best = i; } }
   return best;
 }
-var SEGLPFLATE = 0;   /* ms added to the posterior fascicle when the anterior is cut (0, -3 and -6 tie on the fitting half, so none) */
-var SEGXDEAD = 0.7;   /* PTB-XL LAFB 86/91 held-out, QRS 115 ms (82/91 at 1). How well a cut fascicle's Purkinje net is refilled from the other one */
+var SEGLPFLATE = -5.68;  /* ms added to the posterior fascicle when the anterior is cut (chosen on the fitting half with SEGXDEADA, 26 Oct 2026) */
+var SEGXDEADA = 0.5284;    /* the same, for a cut anterior fascicle only (LAFB): keeps its left axis (-17 deg on the 1.5x mesh) with QRS 107 ms */
+var SEGXDEAD = 0.9274; /* refitted 26 Oct 2026 (0.7 before). How well a cut fascicle's Purkinje net is refilled from the other one */
 function segSolve(sources, opt){
   var M = MESH, N = M.adj.length, T = new Float64Array(N), i;
   for (i = 0; i < N; i++) T[i] = Infinity;
@@ -2794,7 +2798,7 @@ function segSolve(sources, opt){
       else if (e.kind === 'atr') dt = e.d/V.atr;
       else if (e.kind === 'bach') dt = e.d/V.bach;
       else if (e.kind === 'purk') dt = e.d/V.purk;
-      else if (e.kind === 'xdiv') dt = e.d/(V.purk*V.xdiv*((dead.A || dead.P) ? SEGXDEAD : 1));   /* into a cut fascicle's net: only by thin peripheral links */
+      else if (e.kind === 'xdiv') dt = e.d/(V.purk*V.xdiv*(dead.A ? (SEGXDEADA === null ? SEGXDEAD : SEGXDEADA) : (dead.P ? SEGXDEAD : 1)));   /* into a cut fascicle's net: only by thin peripheral links */
       else if (e.kind === 'pmj') dt = V.pmj;
       else { var pn = M.purk[e.to - M.NC];    /* a cut bundle's or fascicle's own fibres are hard to enter from the muscle */
         dt = (pn && (dead[pn.net] || dead[pn.div])) ? V.ret*SEGDEADRET : V.ret; }
@@ -5124,7 +5128,7 @@ function meshList(){
   var out = [];
   MESH.cells.forEach(function(c, i){
     if (c.pm) return;                                          /* papillary muscles sit inside */
-    if (MV.mode === 'slice'){ if (!c.atr && c.s >= 0.40 && c.s < 0.56) out.push(i); return; }   /* a band across the middle of the ventricles, all layers */
+    if (MV.mode === 'slice'){ var hw = 0.04/(MESHP.resL || 1);   /* about one row of patches */ if (!c.atr && c.s >= 0.48 - hw && c.s < 0.48 + hw) out.push(i); return; }   /* a band across the middle of the ventricles, all layers */
     if (c.atr || c.lay === (c.nl || 2) - 1) out.push(i);       /* the outer layer, and the atria */
   });
   MV.list = out; MV.mesh = MESH; MV.listMode = MV.mode;
@@ -5990,8 +5994,13 @@ function openRhythmInfo(id){
    CHANGELOG
    Newest first. Kept in the file so the tool carries its own history.
 ===================================================================== */
-var APPVER = '2.0.19';
+var APPVER = '2.0.21';
 var CHANGELOG = [
+ { v:'2.0.21', d:'27 Oct 2026', t:'A finer heart mesh', li:[
+   '<b>The heart mesh is twice as fine.</b> 2,342 patches instead of 1,100: 27 spokes around the left ventricle instead of 18, and 17 rows from base to apex instead of 11. Conduction was refitted for the finer grid. On PTB-XL ECGs never used for fitting, QRS shape agreement rose from 0.64 to 0.67 (LBBB from 0.43 to 0.51) and the measurement score from 97.6% to 97.7%. It still runs at 60 frames per second.' ] },
+ { v:'2.0.20', d:'26 Oct 2026', t:'QRS complexes shaped like real ones', li:[
+   '<b>Conduction refitted to the shape of real QRS complexes.</b> Bundle branch and fascicle timing, Purkinje reach and conduction speeds were refitted against the whole QRS of real beats as well as their measurements. On PTB-XL ECGs never used for fitting, QRS shape agreement rose from 0.54 to 0.64 (correlation, average of 11 rhythms), most in LPFB, LAFB, the bifascicular blocks, RBBB and LVH; the measurement score rose from 97.1% to 97.6%; ST-T shape held at 0.60.',
+   '<b>LAFB keeps its left axis.</b> The refit made the left Purkinje network refill a blocked fascicle faster, which pulled LAFB toward a normal axis. A cut anterior fascicle now has its own, slower refill, chosen on the fitting half: LAFB stays at about &minus;19&deg; with QRS 113 ms.' ] },
  { v:'2.0.19', d:'22 Oct 2026', t:'Checked against 1,200 more real ECGs; gentler early repolarisation; see through the wall; truer T-wave shapes', li:[
    '<b>T waves shaped like real ones.</b> Recovery was refitted against the whole shape of real beats as well as their measurements: each rhythm&rsquo;s simulated beat is compared, lead by lead, with the median of real PTB-XL beats. On ECGs never used for fitting, the ST-T shape agreement rose from 0.49 to 0.58 (correlation, average of 11 rhythms): AF, LVH, LBBB, LAFB, WPW and NSR most of all. The measurement score is unchanged at 97.1%. The normal V1 T is now small but upright, as in most real normal ECGs.',
    '<b>Cross-section view.</b> Under the 3D mesh, switch from Surface to Cross-section to slice the ventricles across the middle and look down from the base. Every wall layer shows: four through the left ventricle, endocardium inside and epicardium outside, and two through the right. Watch the wave cross the wall from inside out, and recovery return the other way, which is why the T wave is upright.',
@@ -6139,15 +6148,15 @@ var CHANGELOG = [
 
 /* How well the simulator matches real ECGs: PTB-XL held-out scores for v2.0.19 (.claude/ptbxl-score.js --seg --half test),
    and Challenge 2021 groups measured with .claude/wave-measure.js (.claude/c21-score.js) */
-var ACCURACY = { ver:'2.0.19', pct:97.1, ok:1941, n:1998, c21:{ ok:771, n:780, rhythms:10 }, groups:[
-  ['Sinus rhythms (normal, slow, fast, arrhythmia)', 362, 364],
+var ACCURACY = { ver:'2.0.21', pct:97.7, ok:1952, n:1998, c21:{ ok:769, n:780, rhythms:10 }, shape:{ qrs:0.67, stt:0.59 }, groups:[
+  ['Sinus rhythms (normal, slow, fast, arrhythmia)', 360, 364],
   ['AV block, first degree', 90, 91],
-  ['Bundle branch blocks (RBBB, LBBB)', 173, 182],
-  ['Fascicular and bifascicular blocks', 339, 364],
-  ['WPW pre-excitation', 90, 91],
+  ['Bundle branch blocks (RBBB, LBBB)', 172, 182],
+  ['Fascicular and bifascicular blocks', 349, 364],
+  ['WPW pre-excitation', 89, 91],
   ['Supraventricular (AVNRT, flutter, AF)', 264, 270],
-  ['Infarction and ischaemia (STEMI, NSTEMI, old MI)', 358, 364],
-  ['LVH, long QT, ventricular pacing', 265, 272] ] };
+  ['Infarction and ischaemia (STEMI, NSTEMI, old MI)', 362, 364],
+  ['LVH, long QT, ventricular pacing', 266, 272] ] };
 function openAccuracy(){
   var A = ACCURACY, rows = A.groups.map(function(g){ var p = 100*g[1]/g[2];
     return '<tr><td>' + g[0] + '</td><td class="acc-n">' + g[1] + ' / ' + g[2] + '</td><td class="acc-n">' + p.toFixed(0) + '%</td></tr>'; }).join('');
@@ -6157,12 +6166,12 @@ function openAccuracy(){
     '<p>Settings are tuned on half of PTB-XL (even ECG numbers) and scored once on the other half, so the score is on ECGs the simulator was never fitted to.</p>' +
     '<table class="acc-t"><tr><th>Rhythm group</th><th class="acc-n">In range</th><th class="acc-n"></th></tr>' + rows + '</table>' +
     '<p style="margin-top:12px"><b>Rhythms PTB-XL lacks.</b> ' + A.c21.rhythms + ' more rhythms (early repolarisation, atrial tachycardia, atrial and ventricular pacing, PVCs, junctional, VT, second- and third-degree AV block, Mobitz I) are checked against 1,274 recordings from the PhysioNet/CinC Challenge 2021, measured by this project&rsquo;s own wave measurer (checked against 12SL on PTB-XL): ' + A.c21.ok + ' of ' + A.c21.n + ' measurements in range (' + (100*A.c21.ok/A.c21.n).toFixed(1) + '%). P amplitude and PR are not yet scored there.</p>' +
-    '<p><b>Whole-beat shape.</b> Each rhythm&rsquo;s simulated beat is also compared, lead by lead, with the median of real PTB-XL beats: on held-out ECGs the ST-T shape correlation averages 0.58 across 11 rhythms (1 would be identical).</p>' +
+    '<p><b>Whole-beat shape.</b> Each rhythm&rsquo;s simulated beat is also compared, lead by lead, with the median of real PTB-XL beats: on held-out ECGs the shape correlation averages ' + A.shape.qrs.toFixed(2) + ' for the QRS and ' + A.shape.stt.toFixed(2) + ' for the ST-T across 11 rhythms (1 would be identical).</p>' +
     '<p class="m-eyebrow" style="margin-top:14px">Known limits</p><ul>' +
     '<li><b>28 rhythms have no real reference yet</b> (VF, AVRT, AIVR, Mobitz II, torsades, Brugada, hyperkalaemia, pericarditis, PE, Wellens, RV and posterior MI, hypothermia and others). They are drawn from physiology but not yet checked against real recordings.</li>' +
-    '<li><b>LAFB axis</b> is about &minus;20&deg;, short of the &minus;45&deg; that defines LAFB clinically, though its measurements still fall within PTB-XL ranges.</li>' +
+    '<li><b>LAFB axis</b> is about &minus;17&deg;, short of the &minus;45&deg; that defines LAFB clinically, though its measurements still fall within PTB-XL ranges.</li>' +
     '<li><b>LBBB</b> shows a small notch in V1 and V4; notched LBBB complexes do occur, but this one comes from the model.</li>' +
-    '<li>QRS shape agreement is weakest in the fascicular and bundle branch blocks (correlation 0.25&ndash;0.50).</li>' +
+    '<li>QRS shape agreement is weakest in LBBB (correlation 0.51), RBBB (0.55) and RBBB with LAFB (0.55).</li>' +
     '<li>The simulator shows one typical patient per rhythm; real ECGs vary from person to person.</li></ul>';
   openModal(html, 'var(--acc)');
 }
