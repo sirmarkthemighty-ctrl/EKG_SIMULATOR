@@ -1445,7 +1445,7 @@ var VENT = {
       { z:'lvant', v:[ 0.45, 0.35,-0.45], a:1.05, t0:14, t1:52 },
       { z:'lvlat', v:[ 0.95, 0.20, 0.36], a:1.50, t0:18, t1:62 },
       { z:'lvinf', v:[ 0.30, 0.85, 0.34], a:1.15, t0:16, t1:58 },
-      { z:'rvot',  v:[-0.62, 0.05,-0.72], a:0.52, t0:58, t1:104 } ],
+      { z:'rvot',  v:[-0.62, 0.05,-0.72], a:0.15, t0:58, t1:104 } ],   /* a was 0.52: the late outflow wave made an R' in V1 four times the real one */
     heart:{ his:[-30,-18], rbb:[-18,2], lbb:[-18,-10], laf:[-10,0], lpf:[-10,2],
             purkr:[2,18], purkl:[2,8], purkla:[0,14],
             sept:[0,26], rvfw:[10,58], lvapex:[8,52], lvmid:[16,62], lvbase:[44,88] } },
@@ -2002,8 +2002,10 @@ var RHYTHMS = [
   desc:'Abnormal repolarisation in the right ventricular outflow tract lifts the J point high in V1 and V2, then the ST segment descends in a smooth downward-convex curve into an inverted T. There is no true conduction delay, which is why the pattern looks like right bundle branch block but the lateral leads have no wide S.',
   pearl:'Only the coved type 1 pattern is diagnostic, and it can come and go &mdash; fever, sodium channel blockers and vagal tone all unmask it. The ECG is half the diagnosis; the other half is syncope or a family history of sudden death.',
   feat:{ P:'Upright, uniform', PR:'170 ms', reg:'Regular' },
-  mod:{ injZones:{ rv:  { dome:{ epi:0.74 }, apd:{ epi:1.20 } },
-                   sept:{ dome:{ epi:0.55 }, apd:{ epi:1.20 } } }, tAmp:0.85 } },
+  /* 4 Nov 2026: dome loss kept to the right ventricle and a small septal share (was 0.74 / 0.55), RV action potential longer (was 1.20),
+     so the coved ST stays in V1-V2 with an inverted V1 T: 69 of 78 measurements in range of 19 real Brugada-HUCA ECGs with a baseline pattern (61 before) */
+  mod:{ injZones:{ rv:  { dome:{ epi:0.40 }, apd:{ epi:1.40 } },
+                   sept:{ dome:{ epi:0.10 }, apd:{ epi:1.20 } } }, tAmp:1.20 } },
 
 { id:'hyperK', g:'mimic', label:'Hyperkalaemia, moderate', rate:70, rateTxt:'60&ndash;100', tone:'danger',
   origin:'Raised extracellular potassium',
@@ -5994,8 +5996,11 @@ function openRhythmInfo(id){
    CHANGELOG
    Newest first. Kept in the file so the tool carries its own history.
 ===================================================================== */
-var APPVER = '2.0.21';
+var APPVER = '2.0.22';
 var CHANGELOG = [
+ { v:'2.0.22', d:'4 Nov 2026', t:'Brugada checked against real ECGs; three more rhythms checked', li:[
+   '<b>Brugada type 1 now matches real Brugada ECGs.</b> It was checked against the 19 recordings in Brugada-HUCA (PhysioNet, open access) whose resting ECG shows the pattern. The coved ST elevation had spread across V1&ndash;V4 (V3 about four times too high), V1 T stayed upright and the V1 R&prime; was four times too tall. The dome loss is now confined to the right ventricle with a small septal share, the right-ventricular action potential is longer and the late outflow wave is smaller: ST elevation stays in V1&ndash;V3, V1 T is inverted, and 69 of 78 measurements fall in range (61 before). Only 19 recordings exist, all used to choose the settings, so this is a sanity check rather than a held-out test.',
+   '<b>More checks against real ECGs.</b> Rate-controlled AF (928 PTB-XL ECGs, 86 of 90 in range) and ventricular fibrillation (68 recordings: dominant frequency and amplitude inside the real range) are now checked. The Accuracy page lists them, counts 26 rhythms still without a real reference, and corrects an earlier double count of ventricular pacing.' ] },
  { v:'2.0.21', d:'27 Oct 2026', t:'A finer heart mesh', li:[
    '<b>The heart mesh is twice as fine.</b> 2,342 patches instead of 1,100: 27 spokes around the left ventricle instead of 18, and 17 rows from base to apex instead of 11. Conduction was refitted for the finer grid. On PTB-XL ECGs never used for fitting, QRS shape agreement rose from 0.64 to 0.67 (LBBB from 0.43 to 0.51) and the measurement score from 97.6% to 97.7%. It still runs at 60 frames per second.' ] },
  { v:'2.0.20', d:'26 Oct 2026', t:'QRS complexes shaped like real ones', li:[
@@ -6148,7 +6153,7 @@ var CHANGELOG = [
 
 /* How well the simulator matches real ECGs: PTB-XL held-out scores for v2.0.19 (.claude/ptbxl-score.js --seg --half test),
    and Challenge 2021 groups measured with .claude/wave-measure.js (.claude/c21-score.js) */
-var ACCURACY = { ver:'2.0.21', pct:97.7, ok:1952, n:1998, c21:{ ok:769, n:780, rhythms:10 }, shape:{ qrs:0.67, stt:0.59 }, groups:[
+var ACCURACY = { ver:'2.0.22', pct:97.7, ok:1952, n:1998, c21:{ ok:838, n:858, rhythms:11 }, shape:{ qrs:0.67, stt:0.59 }, groups:[
   ['Sinus rhythms (normal, slow, fast, arrhythmia)', 360, 364],
   ['AV block, first degree', 90, 91],
   ['Bundle branch blocks (RBBB, LBBB)', 172, 182],
@@ -6165,10 +6170,11 @@ function openAccuracy(){
     '<p>Each rhythm with a matching group in <b>PTB-XL</b> (21,799 clinical 12-lead ECGs) is measured the way the GE 12SL program measured those ECGs: P, Q, R, S, R&prime;, ST and T in every lead, plus rate, PR, QRS, QT and axes. A measurement counts as a match when it falls between the 5th and 95th percentile of the real group.</p>' +
     '<p>Settings are tuned on half of PTB-XL (even ECG numbers) and scored once on the other half, so the score is on ECGs the simulator was never fitted to.</p>' +
     '<table class="acc-t"><tr><th>Rhythm group</th><th class="acc-n">In range</th><th class="acc-n"></th></tr>' + rows + '</table>' +
-    '<p style="margin-top:12px"><b>Rhythms PTB-XL lacks.</b> ' + A.c21.rhythms + ' more rhythms (early repolarisation, atrial tachycardia, atrial and ventricular pacing, PVCs, junctional, VT, second- and third-degree AV block, Mobitz I) are checked against 1,274 recordings from the PhysioNet/CinC Challenge 2021, measured by this project&rsquo;s own wave measurer (checked against 12SL on PTB-XL): ' + A.c21.ok + ' of ' + A.c21.n + ' measurements in range (' + (100*A.c21.ok/A.c21.n).toFixed(1) + '%). P amplitude and PR are not yet scored there.</p>' +
+    '<p style="margin-top:12px"><b>Rhythms PTB-XL lacks.</b> ' + A.c21.rhythms + ' rhythm groups (early repolarisation, atrial tachycardia, atrial and ventricular pacing, PVCs, junctional, VT, second- and third-degree AV block, Mobitz I, Brugada type 1) are checked against 1,274 recordings from the PhysioNet/CinC Challenge 2021 and 19 from Brugada-HUCA, measured by this project&rsquo;s own wave measurer (checked against 12SL on PTB-XL): ' + A.c21.ok + ' of ' + A.c21.n + ' measurements in range (' + (100*A.c21.ok/A.c21.n).toFixed(1) + '%). P amplitude and PR are not yet scored there. Rate-controlled AF is checked on PTB-XL (86 of 90 in range), and VF on its signal: its dominant frequency and amplitude fall inside the range of 68 real recordings.</p>' +
     '<p><b>Whole-beat shape.</b> Each rhythm&rsquo;s simulated beat is also compared, lead by lead, with the median of real PTB-XL beats: on held-out ECGs the shape correlation averages ' + A.shape.qrs.toFixed(2) + ' for the QRS and ' + A.shape.stt.toFixed(2) + ' for the ST-T across 11 rhythms (1 would be identical).</p>' +
     '<p class="m-eyebrow" style="margin-top:14px">Known limits</p><ul>' +
-    '<li><b>28 rhythms have no real reference yet</b> (VF, AVRT, AIVR, Mobitz II, torsades, Brugada, hyperkalaemia, pericarditis, PE, Wellens, RV and posterior MI, hypothermia and others). They are drawn from physiology but not yet checked against real recordings.</li>' +
+    '<li><b>26 rhythms have no real reference yet</b> (AVRT, AIVR, Mobitz II, torsades, Brugada type 2, hyperkalaemia, pericarditis, PE, Wellens, RV, posterior and lateral MI, hypothermia and others). They are drawn from physiology but not yet checked against real recordings.</li>' +
+    '<li><b>Brugada type 1</b> is checked on only 19 real recordings, all of which were used to choose its settings, so its 88% is optimistic. The dataset does not separate type 1 from type 2.</li>' +
     '<li><b>LAFB axis</b> is about &minus;17&deg;, short of the &minus;45&deg; that defines LAFB clinically, though its measurements still fall within PTB-XL ranges.</li>' +
     '<li><b>LBBB</b> shows a small notch in V1 and V4; notched LBBB complexes do occur, but this one comes from the model.</li>' +
     '<li>QRS shape agreement is weakest in LBBB (correlation 0.51), RBBB (0.55) and RBBB with LAFB (0.55).</li>' +
