@@ -124,6 +124,10 @@ a{color:var(--acc)}
   color:var(--ink-2);font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;
   text-transform:uppercase;padding:7px 11px;font-weight:500;cursor:pointer;white-space:nowrap}
 .logbtn:hover{color:var(--acc);border-color:var(--acc-line);background:var(--acc-wash)}
+.betabtn{vertical-align:middle;margin-left:6px;background:var(--acc-wash);border:1px solid var(--acc-line);border-radius:999px;
+  color:var(--acc);font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+  padding:3px 10px;font-weight:600;cursor:pointer;white-space:nowrap}
+.betabtn:hover{background:var(--surface)}
 .acc-t{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}
 .acc-t th,.acc-t td{text-align:left;padding:6px 6px;border-top:1px solid var(--rule);vertical-align:top}
 .acc-t th{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);border-top:0}
@@ -497,7 +501,7 @@ footer{font-size:12px;color:var(--ink-3);border-top:1px solid var(--rule);paddin
   <header class="mast">
     <div class="mast-text">
       <p class="eyebrow">Cardiac conduction &middot; bedside teaching engine</p>
-      <h1>EKG &amp; Conduction Simulator</h1>
+      <h1>EKG &amp; Conduction Simulator <button type="button" class="betabtn" id="betaBtn" aria-label="Beta: work in progress, read the disclaimer">Beta</button></h1>
       <p class="by">Made by Warodom Phaenthong, M.D. <span id="verTag"></span></p>
     </div>
     <div class="mast-side">
@@ -2178,7 +2182,7 @@ function buildMesh(){ MESH = (function(){
   var L = Q.L, R = Q.R, H = Q.H, HS = Q.HS, HRV = Q.HRV, BRV = Q.BRV;
   /* resolution: resA multiplies the patches around, resL the rows from base to apex (1 = the original 18 x 11 grid) */
   var RA = Q.resA || 1, RL = Q.resL || 1;
-  var NS = Math.round(11*RL), NP = Math.round(18*RA), NSR = Math.round(9*RL), NPR = Math.round(7*RA), SEPT = 62*D2R, SMAX = 0.97, SRV = 0.82;
+  var NS = Math.round(11*RL), NP = Math.round(18*RA), NSR = Math.round(9*RL), NPR = Math.round(7*RA), SEPT = (Q.sept || 62)*D2R, SMAX = 0.97, SRV = Q.srv || 0.82;
   /* where the heart sits in the chest: ox, oy, oz move it (cm; left, down, back) */
   var base = [-u[0]*L*0.42 + (Q.ox || 0), -u[1]*L*0.42 + (Q.oy || 0), -u[2]*L*0.42 + (Q.oz || 0)];
   function radial(phi){ var c = Math.cos(phi), s = Math.sin(phi);
@@ -6086,9 +6090,10 @@ function openRhythmInfo(id){
    CHANGELOG
    Newest first. Kept in the file so the tool carries its own history.
 ===================================================================== */
-var APPVER = '2.0.24';
+var APPVER = '2.0.25';
 var CHANGELOG = [
- { v:'2.0.24', d:'9 Nov 2026', t:'A real heart in the mesh view; activation order checked', li:[
+ { v:'2.0.25', d:'9 Nov 2026', t:'Beta label; a real heart in the mesh view; activation order checked', li:[
+   '<b>Beta button next to the title.</b> It opens a short disclaimer: the simulator is a work in progress, is checked against real ECGs only in part, and is for teaching, not for diagnosis or treatment decisions.',
    '<b>A real heart in the mesh view.</b> A new <b>CT heart</b> button shows a patient&rsquo;s heart from CT, coloured by the same wave of activation as the tracing: the left ventricle, left atrium, aorta, and right atrium and ventricle. Shape: &ldquo;Full Patient Heart from CT&rdquo; by APIL (<a href="https://sketchfab.com/3d-models/full-patient-heart-from-ct-with-texture-ae1c46e7f44547b3aea4d79acdb6e6ab" target="_blank" rel="noopener">Sketchfab</a>), CC BY 4.0, thinned to 29,000 triangles and placed on this mesh by anatomy and a small fit. A surface is coloured only where one of the simulator&rsquo;s patches lies within 1.5 cm of it (64% of the surface); the rest, and the aorta, stay grey. It is a picture only: the tracing and its scores are unchanged.',
    '<b>Where the wave starts in the heart view was compared with real mapping.</b> The first left-ventricular sites fire at 0&ndash;5 ms and the epicardial span is 36 ms (5th to 95th percentile), as in the human mapping studies we could read. The right ventricle starts about 10 ms later than Durrer&rsquo;s 5&ndash;10 ms (only the abstract was available).',
    '<b>Earlier right-ventricular start tried and not kept.</b> It matched Durrer but lowered the PTB-XL score from 1,952 to 1,950 of 1,998 and the Challenge 2021 and Brugada-HUCA score from 844 to 818 of 858, mostly V3 amplitudes. The Accuracy page now lists it as a known limit. A refit of the fascicle entry sites was also not kept: the LAFB axis moved only from &minus;17&deg; to &minus;20&deg;.' ] },
@@ -6279,6 +6284,13 @@ function openAccuracy(){
     '<li>QRS shape agreement is weakest in LBBB (correlation 0.51), RBBB (0.55) and RBBB with LAFB (0.55).</li>' +
     '<li>The simulator shows one typical patient per rhythm; real ECGs vary from person to person.</li></ul>';
   openModal(html, 'var(--acc)');
+}
+function openBeta(){
+  openModal('<p class="m-eyebrow">Beta</p><h2>Work in progress</h2>' +
+    '<p class="m-sub">Version ' + APPVER + '</p>' +
+    '<p>This simulator is still being built and checked. Tracings are drawn from a model of the heart, and only part of it has been compared with real ECGs; the Accuracy page lists what was checked and the known limits. Some rhythms have no real reference yet, and one typical patient is shown per rhythm.</p>' +
+    '<div class="m-pearl"><p class="h">For teaching only</p><p>Do not use it to diagnose, to choose treatment, or in place of a real ECG and clinical judgement. Things may change or be wrong; please report problems to the author.</p></div>',
+    'var(--acc)');
 }
 function openChangelog(){
   var html = '<p class="m-eyebrow">Version history</p><h2>What&rsquo;s new</h2>' +
@@ -6520,6 +6532,7 @@ function wireControls(){
   $('verTag').textContent = '· v' + APPVER;
   $('logBtn').addEventListener('click', openChangelog);
   $('accBtn').addEventListener('click', openAccuracy);
+  $('betaBtn').addEventListener('click', openBeta);
   $('modalX').addEventListener('click', closeModal);
   $('modalBack').addEventListener('click', closeModal);
   $('modalBody').addEventListener('click', function(e){
