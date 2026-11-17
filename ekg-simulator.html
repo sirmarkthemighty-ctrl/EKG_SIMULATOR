@@ -1939,11 +1939,12 @@ var RHYTHMS = [
   pearl:'Concave ST, a notched J point, no reciprocal depression anywhere, and the ratio of ST elevation to T wave height staying small. It is stable over years &mdash; an old tracing settles it faster than any rule.',
   feat:{ P:'Upright, uniform', PR:'160 ms', reg:'Regular' },
   /* notch sizes x0.6 (22 Oct 2026): real early repolarisation (Challenge 2021, 150 ECGs) has lateral J/ST of about 0.05-0.1 mV, not 0.3 */
-  mod:{ injZones:{ lvlat:{ notch:{ epi:9.6 }, nrise:{ epi:1.7 }, apd:{ epi:0.88 } },
-                   lvinf:{ notch:{ epi:9.18 }, nrise:{ epi:1.7 }, apd:{ epi:0.88 } },
-                   lvant:{ notch:{ epi:7.98 }, nrise:{ epi:1.6 }, apd:{ epi:0.87 } },
+  /* notch sizes x0.7 again (16 Nov 2026): the right ventricle now conducts faster (SEGV.rvtrab 2), which raised the lateral J/ST; at x1.0 the Challenge score fell 844 to 841, at x0.7 it is 845 */
+  mod:{ injZones:{ lvlat:{ notch:{ epi:6.72 }, nrise:{ epi:1.7 }, apd:{ epi:0.88 } },
+                   lvinf:{ notch:{ epi:6.426 }, nrise:{ epi:1.7 }, apd:{ epi:0.88 } },
+                   lvant:{ notch:{ epi:5.586 }, nrise:{ epi:1.6 }, apd:{ epi:0.87 } },
                    rv:   { apd:{ epi:0.88 } },
-                   sept: { notch:{ epi:5.58 }, nrise:{ epi:1.4 }, apd:{ epi:0.87 } } }, tAmp:1.15,
+                   sept: { notch:{ epi:3.906 }, nrise:{ epi:1.4 }, apd:{ epi:0.87 } } }, tAmp:1.15,
          qrsStretch:0.9, qrsScale:1.4 } },   /* 4 Nov 2026, chosen on half of 150 real ECGs and checked on the other half (71 -> 73 of 78): a narrower QRS (104 -> 95 ms) and the taller lateral R waves of young people */
 
 { id:'pericarditis', g:'mimic', label:'Acute pericarditis', rate:98, rateTxt:'Often fast', tone:'warn',
@@ -2137,7 +2138,7 @@ function rotv(v,deg){
    (.claude/ptbxl-score.js --seg --half test); a rhythm it cannot yet draw faithfully sets segOff and keeps the region model */
 var SEGON = true;
 /* fitted to the normal 12-lead QRS of PTB-XL (.claude/ptbxl-score.js --seg) */
-var SEGV = { atr:0.120, bach:0.200, myo:0.0933, cross:0.0209, trans:0.0491, purk:0.2306, pmj:7.8829, ret:5.9823, xdiv:0.2521 };   /* along fibres, across them, across the wall */  /* cm/ms; ms */
+var SEGV = { atr:0.120, bach:0.200, myo:0.0933, cross:0.0209, trans:0.0491, purk:0.2306, pmj:7.8829, ret:5.9823, xdiv:0.2521, rvtrab:2 };   /* along fibres, across them, across the wall */  /* cm/ms; ms */
 var SEGK = 0.0611;            /* dipole per unit voltage difference per cm^2 of boundary */
 /* A rhythm states its membrane changes once, for both engines. The
    region model reads a wall as a whole and needs them large; the mesh
@@ -6090,8 +6091,15 @@ function openRhythmInfo(id){
    CHANGELOG
    Newest first. Kept in the file so the tool carries its own history.
 ===================================================================== */
-var APPVER = '2.0.25';
+var APPVER = '2.0.27';
 var CHANGELOG = [
+ { v:'2.0.27', d:'17 Nov 2026', t:'Real-heart tests written up (no change to the tracing)', li:[
+   '<b>No change to the simulated ECG.</b> This version records what was tried to make the heart more realistic, using 20 CT hearts (Rodero 2021, CC BY 4.0). Scores are unchanged: 1,961 of 1,998 PTB-XL measurements in range (98.1%), Challenge 2021 and Brugada-HUCA 845 of 858.',
+   '<b>Tried and not adopted.</b> (1) The mean shape of the 20 hearts as the mesh, refitted with the same wall direction and again with the original &ldquo;cup&rdquo; wall direction: held-out 94.9% in range, worse than 98.1%. (2) A torso model with blood in both ventricular cavities and lungs: V1&ndash;V3 R waves moved by less than 0.05. (3) Later or slower right-ventricular activation, other left-ventricular start sites, and moving the heart back: V1 R/(R+S) stayed 0.56&ndash;0.82 against 0.15 in real ECGs. The cause of the tall V1&ndash;V3 R in a real heart is therefore still open.' ] },
+ { v:'2.0.26', d:'16 Nov 2026', t:'Faster right-ventricular conduction', li:[
+   '<b>The right ventricle now conducts faster along its inner surface</b> (trabecular speed doubled). A real-heart test showed that a slow right ventricle pushes the whole QRS forward and to the right; a fast, broad one gives a normal leftward force. Chosen on half of PTB-XL and scored once on the other half: <b>1,961 of 1,998 measurements in range (98.1%)</b>, up from 1,952 (97.7%); supraventricular rhythms 264 to 269 of 270, infarction 362 to 364 of 364. Fascicular and bifascicular blocks went down from 349 to 347 of 364.',
+   '<b>Early repolarisation notch reduced to 70%</b> so its lateral J and ST stay inside the real range with the faster right ventricle. Challenge 2021 and Brugada-HUCA: 845 of 858 (844 before).',
+   '<b>Not reached.</b> The QRS shape score is 0.666 (it was 0.668); ST-T is 0.588. Six refits of the heart to real CT sizes (three Rodero 2021 hearts) and a real-heart ECG test did not beat the current mesh and are listed on the Accuracy page.' ] },
  { v:'2.0.25', d:'9 Nov 2026', t:'Beta label; a real heart in the mesh view; activation order checked', li:[
    '<b>Beta button next to the title.</b> It opens a short disclaimer: the simulator is a work in progress, is checked against real ECGs only in part, and is for teaching, not for diagnosis or treatment decisions.',
    '<b>A real heart in the mesh view.</b> A new <b>CT heart</b> button shows a patient&rsquo;s heart from CT, coloured by the same wave of activation as the tracing: the left ventricle, left atrium, aorta, and right atrium and ventricle. Shape: &ldquo;Full Patient Heart from CT&rdquo; by APIL (<a href="https://sketchfab.com/3d-models/full-patient-heart-from-ct-with-texture-ae1c46e7f44547b3aea4d79acdb6e6ab" target="_blank" rel="noopener">Sketchfab</a>), CC BY 4.0, thinned to 29,000 triangles and placed on this mesh by anatomy and a small fit. A surface is coloured only where one of the simulator&rsquo;s patches lies within 1.5 cm of it (64% of the surface); the rest, and the aorta, stay grey. It is a picture only: the tracing and its scores are unchanged.',
@@ -6255,15 +6263,15 @@ var CHANGELOG = [
 
 /* How well the simulator matches real ECGs: PTB-XL held-out scores for v2.0.19 (.claude/ptbxl-score.js --seg --half test),
    and Challenge 2021 groups measured with .claude/wave-measure.js (.claude/c21-score.js) */
-var ACCURACY = { ver:'2.0.24', pct:97.7, ok:1952, n:1998, c21:{ ok:844, n:858, rhythms:11 }, shape:{ qrs:0.67, stt:0.59 }, groups:[
-  ['Sinus rhythms (normal, slow, fast, arrhythmia)', 360, 364],
+var ACCURACY = { ver:'2.0.27', pct:98.1, ok:1961, n:1998, c21:{ ok:845, n:858, rhythms:11 }, shape:{ qrs:0.67, stt:0.59 }, groups:[
+  ['Sinus rhythms (normal, slow, fast, arrhythmia)', 361, 364],
   ['AV block, first degree', 90, 91],
-  ['Bundle branch blocks (RBBB, LBBB)', 172, 182],
-  ['Fascicular and bifascicular blocks', 349, 364],
+  ['Bundle branch blocks (RBBB, LBBB)', 173, 182],
+  ['Fascicular and bifascicular blocks', 347, 364],
   ['WPW pre-excitation', 89, 91],
-  ['Supraventricular (AVNRT, flutter, AF)', 264, 270],
-  ['Infarction and ischaemia (STEMI, NSTEMI, old MI)', 362, 364],
-  ['LVH, long QT, ventricular pacing', 266, 272] ] };
+  ['Supraventricular (AVNRT, flutter, AF)', 269, 270],
+  ['Infarction and ischaemia (STEMI, NSTEMI, old MI)', 364, 364],
+  ['LVH, long QT, ventricular pacing', 268, 272] ] };
 function openAccuracy(){
   var A = ACCURACY, rows = A.groups.map(function(g){ var p = 100*g[1]/g[2];
     return '<tr><td>' + g[0] + '</td><td class="acc-n">' + g[1] + ' / ' + g[2] + '</td><td class="acc-n">' + p.toFixed(0) + '%</td></tr>'; }).join('');
@@ -6281,6 +6289,7 @@ function openAccuracy(){
     '<li><b>LBBB</b> shows a small notch in V1 and V4; notched LBBB complexes do occur, but this one comes from the model.</li>' +
     '<li><b>Right-ventricular start</b> is about 16&ndash;20&nbsp;ms after the first left-ventricular activation; Durrer&rsquo;s isolated human hearts (1970) report 5&ndash;10&nbsp;ms. Moving it earlier matched Durrer but lowered the Challenge 2021 and Brugada-HUCA score from 844 to 818 of 858 (V3 amplitudes and II and aVF R&prime;), so the surface-ECG fit was kept. Only the abstract of Durrer was available, and isolated hearts conduct faster than hearts in the body.</li>' +
     '<li><b>CT heart</b> is one patient&rsquo;s anatomy, and the simulator&rsquo;s own mesh is smaller and simpler, so only part of it can be coloured (left ventricle 83%, left atrium 63%, right atrium and ventricle 46%, aorta none). It is a picture only and does not feed the tracing.</li>' +
+    '<li><b>Heart size.</b> The mesh is smaller than 20 real CT hearts (Rodero 2021): left ventricle 6.6 cm long against 8.6 &plusmn; 0.7 cm, and a right ventricle about a quarter as deep. Refits that forced real sizes (also the mean of all 20 hearts, with and without the original wall direction) did not reach this score (held-out 94.9% in range against 98.1%). A real heart run through the simulator&rsquo;s lead vectors gives a normal axis but V1&ndash;V3 R waves too tall (R/(R+S) about 0.6 against 0.15). Blood in the cavities, lungs, later or slower right-ventricular activation, other left-ventricular start sites and a deeper heart did not change that, so the cause is still open.</li>' +
     '<li>QRS shape agreement is weakest in LBBB (correlation 0.51), RBBB (0.55) and RBBB with LAFB (0.55).</li>' +
     '<li>The simulator shows one typical patient per rhythm; real ECGs vary from person to person.</li></ul>';
   openModal(html, 'var(--acc)');
