@@ -1666,7 +1666,7 @@ var RHYTHMS = [
   tags:['PR &gt;200 ms','Fixed','Every P conducts'],
   desc:'Every atrial impulse still reaches the ventricle; it just takes longer to cross the AV node. The PR is long but does not change from beat to beat.',
   pearl:'It is a delay, not a block &mdash; nothing is ever dropped. In isolation and with a narrow QRS it needs no treatment, only a look at the drug chart.',
-  feat:{ P:'Upright, uniform', PR:'300 ms, fixed', reg:'Regular' } },
+  feat:{ P:'Upright, uniform', PR:'230 ms, fixed', reg:'Regular' } },
 
 { id:'mobitz1', g:'av', label:'Mobitz I (Wenckebach)', rate:76, rateTxt:'Grouped', tone:'warn',
   origin:'Decremental block within the AV node',
@@ -2780,6 +2780,7 @@ function rvsEntry(){
 }
 var SEGLPFLATE = -5.68;  /* ms added to the posterior fascicle when the anterior is cut (chosen on the fitting half with SEGXDEADA, 26 Oct 2026) */
 var SEGXDEADA = 0.5284;    /* the same, for a cut anterior fascicle only (LAFB): keeps its left axis (-17 deg on the 1.5x mesh) with QRS 107 ms */
+var SEGRVTRABBLK = 1;  /* RV trabecular speed factor when the right bundle is cut: the fast inner RV layer is fed by the right bundle, so with it cut the RV fills at muscle speed (24 Nov 2026, chosen on the fitting half: RBBB QRS 113 -> 143 ms, real median 144) */
 var SEGXDEAD = 0.9274; /* refitted 26 Oct 2026 (0.7 before). How well a cut fascicle's Purkinje net is refilled from the other one */
 function segSolve(sources, opt){
   var M = MESH, N = M.adj.length, T = new Float64Array(N), i;
@@ -2802,7 +2803,7 @@ function segSolve(sources, opt){
     var ed = M.adj[k];
     for (i = 0; i < ed.length; i++){
       var e = ed[i], dt;
-      if (e.kind === 'myo'){ var vt = V.cross || V.myo; dt = e.c2 === undefined ? e.d/V.myo : e.d*Math.sqrt(e.c2/(V.myo*V.myo) + (1 - e.c2)/(vt*vt)); if (e.trab) dt /= (V.rvtrab || 1); }
+      if (e.kind === 'myo'){ var vt = V.cross || V.myo; dt = e.c2 === undefined ? e.d/V.myo : e.d*Math.sqrt(e.c2/(V.myo*V.myo) + (1 - e.c2)/(vt*vt)); if (e.trab) dt /= (dead.R && SEGRVTRABBLK !== null ? SEGRVTRABBLK : (V.rvtrab || 1)); }
       else if (e.kind === 'trans') dt = (e.tf || 2)*e.d/(V.trans*(opt.transK || 1));
       else if (e.kind === 'atr') dt = e.d/V.atr;
       else if (e.kind === 'bach') dt = e.d/V.bach;
@@ -3568,7 +3569,7 @@ function landVia(b, ta, mode, rr, blockAt){
    capable of. The options are what differs.
 --------------------------------------------------------------------- */
 var SINUSLIKE = {
-  nsr:{}, sbrady:{}, stach:{avn:{ahMin:0.062, erp:0.150}}, sarr:{resp:1}, avb1:{pr:0.30},
+  nsr:{}, sbrady:{}, stach:{avn:{ahMin:0.062, erp:0.150}}, sarr:{resp:1}, avb1:{pr:0.23},
   at:{pKind:'ectopicRA', avn:{ahMin:0.055, erp:0.145}},
   /* a node that is slow to recover and steep on the curve: the grouping,
      the lengthening PR and the dropped beat are all consequences */
@@ -6091,8 +6092,13 @@ function openRhythmInfo(id){
    CHANGELOG
    Newest first. Kept in the file so the tool carries its own history.
 ===================================================================== */
-var APPVER = '2.0.27';
+var APPVER = '2.0.28';
 var CHANGELOG = [
+ { v:'2.0.28', d:'24 Nov 2026', t:'Wider right bundle branch block; first-degree AV block PR', li:[
+   '<b>Right bundle branch block is now wide enough.</b> With the right bundle cut, the right ventricle no longer uses its fast inner layer (that layer is fed by the right bundle) and fills at muscle speed. QRS: RBBB 113 &rarr; 143 ms (real median 138&ndash;144), RBBB + LAFB 117 &rarr; 146 ms (real 148), RBBB + LPFB 113 &rarr; 143 ms (real 147). Before, RBBB fell short of its own 120 ms criterion.',
+   '<b>First-degree AV block PR 300 &rarr; 230 ms</b>, the real median (222&ndash;225 ms); still clearly over 200 ms.',
+   '<b>QT in atrial fibrillation measured on a median beat.</b> The checker found the T end on a single beat, where fibrillatory waves held the trace up and lengthened the QT by about 90 ms. It now uses the sample-by-sample median of all beats, as the 12SL program behind PTB-XL does. The simulated waves did not change; the rate-controlled AF QT now reads 396 ms (real 376).',
+   'Chosen on half of PTB-XL and scored once on the other half: <b>1,964 of 1,998 measurements in range (98.3%)</b>, up from 1,961; Challenge 2021 and Brugada-HUCA unchanged at 845 of 858. <b>Not reached:</b> ST-T shape 0.586 against 0.587 (it was 0.588); QRS shape 0.666 as before.' ] },
  { v:'2.0.27', d:'17 Nov 2026', t:'Real-heart tests written up (no change to the tracing)', li:[
    '<b>No change to the simulated ECG.</b> This version records what was tried to make the heart more realistic, using 20 CT hearts (Rodero 2021, CC BY 4.0). Scores are unchanged: 1,961 of 1,998 PTB-XL measurements in range (98.1%), Challenge 2021 and Brugada-HUCA 845 of 858.',
    '<b>Tried and not adopted.</b> (1) The mean shape of the 20 hearts as the mesh, refitted with the same wall direction and again with the original &ldquo;cup&rdquo; wall direction: held-out 94.9% in range, worse than 98.1%. (2) A torso model with blood in both ventricular cavities and lungs: V1&ndash;V3 R waves moved by less than 0.05. (3) Later or slower right-ventricular activation, other left-ventricular start sites, and moving the heart back: V1 R/(R+S) stayed 0.56&ndash;0.82 against 0.15 in real ECGs. The cause of the tall V1&ndash;V3 R in a real heart is therefore still open.' ] },
@@ -6263,13 +6269,13 @@ var CHANGELOG = [
 
 /* How well the simulator matches real ECGs: PTB-XL held-out scores for v2.0.19 (.claude/ptbxl-score.js --seg --half test),
    and Challenge 2021 groups measured with .claude/wave-measure.js (.claude/c21-score.js) */
-var ACCURACY = { ver:'2.0.27', pct:98.1, ok:1961, n:1998, c21:{ ok:845, n:858, rhythms:11 }, shape:{ qrs:0.67, stt:0.59 }, groups:[
+var ACCURACY = { ver:'2.0.28', pct:98.3, ok:1964, n:1998, c21:{ ok:845, n:858, rhythms:11 }, shape:{ qrs:0.67, stt:0.59 }, groups:[
   ['Sinus rhythms (normal, slow, fast, arrhythmia)', 361, 364],
-  ['AV block, first degree', 90, 91],
-  ['Bundle branch blocks (RBBB, LBBB)', 173, 182],
-  ['Fascicular and bifascicular blocks', 347, 364],
+  ['AV block, first degree', 91, 91],
+  ['Bundle branch blocks (RBBB, LBBB)', 172, 182],
+  ['Fascicular and bifascicular blocks', 349, 364],
   ['WPW pre-excitation', 89, 91],
-  ['Supraventricular (AVNRT, flutter, AF)', 269, 270],
+  ['Supraventricular (AVNRT, flutter, AF)', 270, 270],
   ['Infarction and ischaemia (STEMI, NSTEMI, old MI)', 364, 364],
   ['LVH, long QT, ventricular pacing', 268, 272] ] };
 function openAccuracy(){
